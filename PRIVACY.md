@@ -9,8 +9,21 @@ app, whether you install it from the Microsoft Store or from a release on GitHub
 ## In short
 
 MyVideoEditor does not collect, sell or share your personal data. It has no accounts, analytics,
-telemetry, advertising, crash reporting or update checks. It makes no network connections at all.
-The developer receives nothing from the app.
+telemetry, advertising, crash reporting or update checks. The only network connections it ever
+makes are downloads of optional upscalers that you ask for (below). The developer receives nothing
+from the app.
+
+## Optional upscaler downloads
+
+Some upscaling methods in the Convert tab need a free component that isn't included in the app
+(GPU shaders, and the Real-ESRGAN and Real-CUGAN AI upscalers). It is downloaded only when you
+choose such a method (or the speed test offers it) and you confirm, directly from the component's own release page on GitHub
+(github.com), where GitHub's privacy statement applies:
+<https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement>. Nothing
+about you or your videos is sent: it's an ordinary file download, and each file is checked against
+a fixed checksum before it's used. These upscalers then run entirely on your computer; your videos
+never leave it. Downloaded components are kept in the data folder below (`tools/`) and can be
+deleted at any time.
 
 ## Your media and recordings
 
@@ -43,6 +56,9 @@ That folder holds:
 - **Autosave (`autosave/`):** a copy of the project you're working on, saved every minute while it
   has unsaved changes, so it can be restored if the app closes unexpectedly. It's deleted when you
   save or discard the project.
+- **Upscalers (`tools/`):** optional upscaling components you chose to download.
+- **Speed measurements (`upscale-speeds.json`):** how fast each upscaling method ran on this
+  computer (with its graphics card's name), so the speed test needn't run again.
 - **Caches (`cache/`):** thumbnails, sound waveforms and rendered titles, made from your media so the
   editor is fast. They can be deleted at any time; they are made again when needed.
 - **Diagnostic logs (`logs/`):** plain-text logs of what the app did, such as imports, exports and
@@ -64,7 +80,8 @@ anyone.
 ## Third parties
 
 MyVideoEditor includes FFmpeg, which it runs on your computer to read and write media. FFmpeg makes
-no network connections in the way MyVideoEditor uses it.
+no network connections in the way MyVideoEditor uses it. The optional upscalers described above run
+on your computer and make no network connections either.
 
 When you install MyVideoEditor from the Microsoft Store, Microsoft handles the download, licensing
 and updates under its own privacy statement: <https://privacy.microsoft.com/privacystatement>.

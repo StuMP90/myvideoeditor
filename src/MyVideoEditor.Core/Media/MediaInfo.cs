@@ -23,6 +23,13 @@ public sealed record MediaInfo
     public int Width { get; init; }
     public int Height { get; init; }
     public double FrameRate { get; init; }
+    /// <summary>The exact frame rate as ffmpeg writes it ("30000/1001"); use this in filters, not <see cref="FrameRate"/>, to avoid drift.</summary>
+    public string FrameRateText { get; init; } = "30";
+    /// <summary>Colour tags as ffprobe reports them ("bt709", "tv"…); empty when the file doesn't say.</summary>
+    public string ColorSpace { get; init; } = "";
+    public string ColorRange { get; init; } = "";
+    public string ColorPrimaries { get; init; } = "";
+    public string ColorTransfer { get; init; } = "";
     public string VideoCodec { get; init; } = "";
     public string PixelFormat { get; init; } = "";
     /// <summary>Rotation in degrees (0, 90, 180, 270) from the file's display matrix. ffmpeg applies it when decoding.</summary>

@@ -220,6 +220,36 @@ public class UiTests
     }
 
     [AvaloniaFact]
+    public void Speed_test_times_methods_and_recommends_one()
+    {
+        var (window, vm) = Open();
+        vm.SelectedTab = 1;
+        var convert = vm.Convert;
+        // Install the shaders first, so the test doesn't stop at the "download?" question.
+        foreach (var c in new[] { Core.Upscaling.UpscalerComponents.Fsrcnnx, Core.Upscaling.UpscalerComponents.Anime4K })
+            if (!Core.Upscaling.UpscalerComponents.IsInstalled(c))
+                Task.Run(() => Core.Upscaling.UpscalerComponents.InstallAsync(c)).GetAwaiter().GetResult();
+        Await(convert.AddFilesAsync([Media(() => TestMedia.PatternAsync(2, 320, 240))]));
+        Assert.False(convert.CanTestSpeed); // nothing to upscale yet
+        convert.SizePreset = "1280×720";
+        Assert.True(convert.CanTestSpeed);
+        Await(convert.TestSpeedCommand.ExecuteAsync(null));
+        Assert.Contains("Recommended", convert.SpeedText);
+        var lanczos = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.Lanczos);
+        Assert.NotNull(lanczos.Estimate);
+        Assert.Contains("under a minute", lanczos.Status);
+        Assert.Single(convert.Scalings, o => o.IsRecommended);
+        Assert.Same(convert.Scalings.Single(o => o.IsRecommended), convert.SelectedScaling);
+        // AI methods aren't downloaded here, so they're offered for download rather than timed.
+        var ai = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.AiAnimation);
+        if (ai.IsAvailable)
+            Assert.Contains("download", ai.Status);
+        Pump();
+        Screenshot(window, "06-upscaling");
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
     public void Exporting_from_the_dialog_writes_the_file()
     {
         var (window, vm) = Open();

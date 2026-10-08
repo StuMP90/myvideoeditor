@@ -15,6 +15,8 @@ public sealed class AppSettings
     public string ExportFormat { get; set; } = "mp4-h264";
     public string ExportQuality { get; set; } = "Standard";
     public string ConvertFormat { get; set; } = "mp4-h264";
+    public string ConvertScaling { get; set; } = "Lanczos";
+    public string ConvertContent { get; set; } = "Camera";
     public string? CaptureFolder { get; set; }
     public double CaptureFrameRate { get; set; } = 30;
     public bool CaptureCursor { get; set; } = true;

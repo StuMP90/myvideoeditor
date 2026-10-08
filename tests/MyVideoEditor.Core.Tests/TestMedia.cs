@@ -44,6 +44,46 @@ public static class TestMedia
             .. VideoCodec(), "-c:a", "aac", "-shortest", "-y", path,
         ]);
 
+    /// <summary>A moving pattern at NTSC 29.97 fps (30000/1001), with a tone: catches frame-rate rounding drift.</summary>
+    public static Task<string> NtscPatternAsync(double seconds, int width, int height) =>
+        CachedAsync($"ntsc-{seconds}-{width}x{height}.mp4", path =>
+        [
+            "-f", "lavfi", "-i", $"testsrc2=size={width}x{height}:rate=30000/1001:duration={seconds}",
+            "-f", "lavfi", "-i", $"sine=frequency=330:sample_rate=48000:duration={seconds}",
+            .. VideoCodec(), "-c:a", "aac", "-shortest", "-y", path,
+        ]);
+
+    /// <summary>Number of video frames in a file (decoded and counted).</summary>
+    public static int FrameCount(string file)
+    {
+        var psi = new ProcessStartInfo(Locator.FfprobePath) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in new[] { "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file })
+            psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        var text = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return int.Parse(text.Trim().TrimEnd(','));
+    }
+
+    /// <summary>
+    /// SSIM of two videos compared frame by frame in order (timestamps ignored: files written
+    /// by different tools rarely share start times, and ffmpeg pairs frames by timestamp).
+    /// </summary>
+    public static double Ssim(string a, string b)
+    {
+        var psi = new ProcessStartInfo(Locator.FfmpegPath) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var arg in new[] { "-hide_banner", "-i", a, "-i", b, "-lavfi",
+                     "[0:v]settb=AVTB,setpts=N/30/TB,format=yuv420p[x];[1:v]settb=AVTB,setpts=N/30/TB,format=yuv420p[y];[x][y]scale2ref=flags=bicubic[x2][y2];[x2][y2]ssim", "-f", "null", "-" })
+            psi.ArgumentList.Add(arg);
+        using var p = Process.Start(psi)!;
+        _ = p.StandardOutput.ReadToEndAsync();
+        var err = p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        var line = err.Split('\n').Last(l => l.Contains("All:"));
+        var value = line[(line.IndexOf("All:", StringComparison.Ordinal) + 4)..].Split(' ')[0];
+        return double.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     public static Task<string> ToneAsync(double seconds, int hz = 440) =>
         CachedAsync($"tone-{seconds}-{hz}.wav", path =>
             ["-f", "lavfi", "-i", $"sine=frequency={hz}:sample_rate=48000:duration={seconds}", "-ac", "2", "-y", path]);

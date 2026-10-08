@@ -52,10 +52,43 @@ Both include FFmpeg, so there's nothing else to install.
 ### Convert
 
 A batch queue for files that don't need a timeline: change format; resize with **fit** (black
-bars), **fill** (crop) or **stretch**; upscale with Lanczos, bicubic, spline, **Enhanced**
-(Lanczos with denoise and sharpening) or **AI super-resolution** (Real-ESRGAN, when installed);
-change the frame rate; trim; rotate; deinterlace; remove the sound; or copy streams into a new
-container without re-encoding (fast and lossless). Originals are never changed.
+bars), **fill** (crop) or **stretch**; upscale (below); change the frame rate; trim; rotate;
+deinterlace; remove the sound; or copy streams into a new container without re-encoding (fast and
+lossless). Originals are never changed.
+
+### Upscaling for every kind of PC
+
+All methods are free and run on your own computer; nothing is sent anywhere. They're grouped by
+what they need, and **Test speed on this PC** times each one on a few frames of your own video,
+estimates the whole job, and recommends the best that finishes within an hour for the kind of
+video (camera footage, or animation and screen recordings).
+
+| Method | Runs on | Best for | 360p→720p on an Intel Iris Xe laptop |
+|---|---|---|---|
+| Lanczos, bicubic, spline, Enhanced | CPU | anything; fast | ~30 ms per frame |
+| **Sharper detail** (FSRCNNX shader via libplacebo) | any Vulkan GPU, integrated is fine | camera footage | ~0.1 s per frame |
+| **Cleaner lines** (Anime4K shaders via libplacebo) | any Vulkan GPU | animation, screen recordings | ~0.1 s per frame |
+| **AI: animation and screen** (Real-ESRGAN animevideov3) | Vulkan GPU | animation, screen recordings | ~1.5 s per frame |
+| **AI: anime, strongest** (Real-CUGAN) | Vulkan GPU | anime | ~8 s per frame |
+| **AI: photo detail** (Real-ESRGAN x4plus) | dedicated (gaming) GPU | camera footage | ~60 s per frame |
+
+- The GPU and AI components are downloaded on first use (70 KB to 47 MB, after asking), from each
+  project's GitHub release, pinned to an exact file and SHA-256 checksum. They're kept in the data
+  folder under `tools/`. Licences: FSRCNNX GPL-3.0, Anime4K MIT, Real-ESRGAN BSD-3-Clause,
+  Real-CUGAN MIT. They aren't bundled, so they don't add to the download for people who won't use
+  them.
+- The GPU is found through Vulkan: a dedicated card is preferred, then integrated graphics.
+  Software renderers (llvmpipe) are never used for real work.
+- AI methods work on frames in batches sized to the free disk space, piped straight back into the
+  encoder, so even long videos need only about 1.5 GB of working space. If the graphics card runs
+  out of memory, smaller tiles are tried automatically. Before a long AI job the app estimates the
+  time and asks.
+- GPU and AI methods are only used when the picture gets bigger; otherwise Lanczos is used.
+- How they compare: on camera footage, FSRCNNX gives slightly crisper edges than Lanczos; the AI
+  models designed for animation turn camera footage into a painted look, so they're offered for
+  animation. On animation, Real-ESRGAN's video model was clearly the best (clean lines, blur
+  removed). Fidelity scores (SSIM/PSNR) always favour plain Lanczos and VMAF rewards any sharpening,
+  so the choice and the tests rely on what each method is for, not on beating Lanczos at a score.
 
 ### Capture and annotate
 
@@ -131,9 +164,8 @@ ffmpeg and ffprobe (`tools/fetch-ffmpeg.sh linux-x64 ~/ffmpeg` fetches the relea
 dotnet run --project src/MyVideoEditor.App
 ```
 
-Optional: [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN/releases) (`realesrgan-ncnn-vulkan`)
-on `PATH`, or in `MYVIDEOEDITOR_REALESRGAN_DIR`, enables AI upscaling in the Convert tab. It needs
-a GPU with Vulkan.
+Upscaling components download into the data folder's `tools/` (override with
+`MYVIDEOEDITOR_TOOLS_DIR`).
 
 ## Tests
 
@@ -145,10 +177,16 @@ dotnet test
   download), builds projects, exports them and checks the result: pixel colours where clips, gaps,
   overlays, titles, dissolves, fades, effects and stills should be; silence and sound where audio
   was placed or muted; durations after speed changes and range exports; GIF, WebM and MP3 output;
-  conversions (resize modes, upscaling, trim, rotate, remux); preview playback in real time with a
+  conversions (resize modes, upscaling, trim, rotate, remux); every upscaling method on the GPU
+  (correct size, every frame kept, colours kept, a picture resembling the source), the AI pipeline
+  with a stand-in program (batches, a 29.97 fps source kept in sync, sound, tile fallback after an
+  out-of-memory failure, clean-up on cancel), GPU detection, checksum-verified installs, paths with
+  awkward characters, the speed test and its cache; preview playback in real time with a
   sound clock; still frames; thumbnails and waveforms; editing rules (overwrite, split, trims within
   the footage and neighbours, ripple delete, locked tracks, detach audio, undo merging); project
-  files. Capture tests record the real X display when there is one (CI uses Xvfb).
+  files. Capture tests record the real X display when there is one (CI uses Xvfb). GPU tests use
+  the computer's GPU; CI has none, so it sets `MYVIDEOEDITOR_ALLOW_SOFTWARE_GPU=1` and runs them on
+  Mesa's software Vulkan (llvmpipe), slowly but end to end.
 - `MyVideoEditor.App.Tests` drives the real UI headlessly: importing, the timeline, the inspector,
   titles and annotations (including drawing one on the preview with the mouse), keyboard shortcuts,
   the export dialog, the convert queue, the capture tab, saving and reopening, and the OpenAL sound
@@ -211,8 +249,8 @@ The same list is in the app: **Help**, or **F1**.
 
 ## Privacy
 
-MyVideoEditor makes no network connections and collects nothing. Recordings happen only when you
-start them. See the [privacy policy](PRIVACY.md).
+MyVideoEditor collects nothing. Its only network use is downloading an optional upscaler when you
+ask for one. Recordings happen only when you start them. See the [privacy policy](PRIVACY.md).
 
 ## Known limitations and roadmap
 

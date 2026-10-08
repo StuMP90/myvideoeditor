@@ -9,6 +9,10 @@ internal static class TestEnvironment
     /// folder, so test runs never touch the real one.
     /// </summary>
     [ModuleInitializer]
-    internal static void UseTemporaryDataFolder() =>
+    internal static void UseTemporaryDataFolder()
+    {
         Environment.SetEnvironmentVariable("MYVIDEOEDITOR_DATA_DIR", Path.Combine(Path.GetTempPath(), "myvideoeditor-test-data"));
+        // Its own tools folder: shaders get downloaded here, AI programs never are (so speed tests stay quick).
+        Environment.SetEnvironmentVariable("MYVIDEOEDITOR_TOOLS_DIR", Path.Combine(Path.GetTempPath(), "myvideoeditor-ui-test-tools"));
+    }
 }

@@ -104,9 +104,14 @@ public sealed class MediaProbe
             var rotation = Rotation(v);
             if (rotation is 90 or 270)
                 (width, height) = (height, width);
-            var fps = ParseRatio(Str(v, "avg_frame_rate"));
+            var fpsText = Str(v, "avg_frame_rate");
+            var fps = ParseRatio(fpsText);
             if (fps is <= 0 or > 1000)
-                fps = ParseRatio(Str(v, "r_frame_rate"));
+            {
+                fpsText = Str(v, "r_frame_rate");
+                fps = ParseRatio(fpsText);
+            }
+            static string Tag(string value) => value is "unknown" or "unspecified" or "reserved" ? "" : value;
             info = info with
             {
                 HasVideo = true,
@@ -114,6 +119,11 @@ public sealed class MediaProbe
                 Height = height,
                 Rotation = rotation,
                 FrameRate = fps is > 0 and <= 1000 ? fps : 30,
+                FrameRateText = fps is > 0 and <= 1000 ? fpsText.Replace(':', '/') : "30",
+                ColorSpace = Tag(Str(v, "color_space")),
+                ColorRange = Tag(Str(v, "color_range")),
+                ColorPrimaries = Tag(Str(v, "color_primaries")),
+                ColorTransfer = Tag(Str(v, "color_transfer")),
                 VideoCodec = Str(v, "codec_name"),
                 PixelFormat = Str(v, "pix_fmt"),
             };

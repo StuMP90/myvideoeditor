@@ -1,6 +1,7 @@
 using MyVideoEditor.Core.Diagnostics;
 using MyVideoEditor.Core.Export;
 using MyVideoEditor.Core.Media;
+using MyVideoEditor.Core.Upscaling;
 using static MyVideoEditor.Core.Rendering.RenderPlan;
 
 namespace MyVideoEditor.Core.Conversion;
@@ -15,6 +16,7 @@ public enum ResizeMode
     Stretch,
 }
 
+/// <summary>How to resize; see <see cref="UpscaleMethods"/> for what each is good for and needs.</summary>
 public enum ScaleAlgorithm
 {
     /// <summary>Sharp, general purpose (default).</summary>
@@ -23,10 +25,18 @@ public enum ScaleAlgorithm
     Bicubic,
     /// <summary>Spline: between the two.</summary>
     Spline,
-    /// <summary>Lanczos plus sharpening and light noise reduction: the best non-AI upscale.</summary>
+    /// <summary>Lanczos plus sharpening and light noise reduction.</summary>
     Enhanced,
-    /// <summary>Real-ESRGAN (machine-learning super-resolution), if installed. Much slower; needs a Vulkan GPU.</summary>
-    AiSuperResolution,
+    /// <summary>FSRCNNX shader on the GPU (libplacebo): camera footage.</summary>
+    GpuDetail,
+    /// <summary>Anime4K shaders on the GPU (libplacebo): animation and screen recordings.</summary>
+    GpuLines,
+    /// <summary>Real-ESRGAN animevideov3: animation and screen recordings.</summary>
+    AiAnimation,
+    /// <summary>Real-CUGAN: anime.</summary>
+    AiAnime,
+    /// <summary>Real-ESRGAN x4plus: camera footage, very slow.</summary>
+    AiPhoto,
 }
 
 public sealed record ConversionSettings
@@ -69,27 +79,47 @@ public sealed class Converter
         if (Path.GetFullPath(input) == Path.GetFullPath(output))
             throw new ArgumentException("Choose a different file to save to: converting a file onto itself would destroy it.");
 
-        if (settings.Algorithm == ScaleAlgorithm.AiSuperResolution && settings.Format.HasVideo && info.HasVideo && !settings.Remux)
-        {
-            await new AiUpscaler(_locator).UpscaleAsync(info, output, settings, progress, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
+        settings = Effective(info, settings);
         var full = Path.GetFullPath(output);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         var partial = Path.Combine(Path.GetDirectoryName(full)!, Path.GetFileNameWithoutExtension(full) + ".partial" + Path.GetExtension(full));
-        var args = BuildArguments(info, partial, settings, _locator.Capabilities);
         var length = OutputLength(info, settings);
-        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}).");
+        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}).");
         try
         {
-            await _runner.RunAsync(args, length > 0 ? TimeSpan.FromSeconds(length) : null, progress, cancellationToken).ConfigureAwait(false);
+            if (UpscaleMethods.Get(settings.Algorithm).Kind == UpscaleKind.AiFrames)
+            {
+                await AiJob.RunAsync(info, partial, settings, progress, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var args = BuildArguments(info, partial, settings, _locator.Capabilities);
+                await _runner.RunAsync(args, length > 0 ? TimeSpan.FromSeconds(length) : null, progress, cancellationToken).ConfigureAwait(false);
+            }
             File.Move(partial, full, overwrite: true);
         }
         finally
         {
             try { File.Delete(partial); } catch (IOException) { }
         }
+    }
+
+    /// <summary>The AI pipeline to use (tests swap in a stand-in program).</summary>
+    internal AiUpscaleJob AiJob { get; init; } = new();
+
+    /// <summary>
+    /// GPU and AI methods only make sense when the picture gets bigger and is re-encoded; otherwise
+    /// (downscaling, same size, remux, audio only) Lanczos is used.
+    /// </summary>
+    internal static ConversionSettings Effective(MediaInfo info, ConversionSettings s)
+    {
+        var method = UpscaleMethods.Get(s.Algorithm);
+        if (method.Kind == UpscaleKind.Cpu)
+            return s;
+        var (srcW, srcH) = s.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
+        var target = ScaledSize.For(Math.Max(2, srcW), Math.Max(2, srcH), s.Width, s.Height, s.ResizeMode);
+        var upscaling = info.HasVideo && target.Width * (long)target.Height > srcW * (long)srcH * 1.05;
+        return s.Remux || !s.Format.HasVideo || s.Format.IsGif || !upscaling ? s with { Algorithm = ScaleAlgorithm.Lanczos } : s;
     }
 
     internal static double OutputLength(MediaInfo info, ConversionSettings s)
@@ -123,6 +153,12 @@ public sealed class Converter
         }
 
         var filters = wantVideo ? VideoFilters(info, s) : [];
+        if (wantVideo && UpscaleMethods.Get(s.Algorithm).Kind == UpscaleKind.GpuShader)
+        {
+            // The GPU device has to be set up before the input.
+            var gpu = VulkanDevices.Best ?? throw new InvalidOperationException("GPU upscaling needs a graphics card with Vulkan support.");
+            args.InsertRange(0, ["-init_hw_device", $"vulkan=gpu:{gpu.Index}", "-filter_hw_device", "gpu"]);
+        }
         if (s.Format.IsGif)
         {
             var fps = Math.Min(s.FrameRate ?? info.FrameRate, s.Format.MaxFrameRate ?? 15);
@@ -163,11 +199,15 @@ public sealed class Converter
         var filters = new List<string>();
         if (s.Deinterlace)
             filters.Add("yadif");
-        switch (((s.Rotate % 360) + 360) % 360)
+        filters.AddRange(RotationFilters(s.Rotate));
+        var method = UpscaleMethods.Get(s.Algorithm);
+        if (method.Kind == UpscaleKind.GpuShader)
         {
-            case 90: filters.Add("transpose=1"); break;
-            case 180: filters.Add("transpose=1,transpose=1"); break;
-            case 270: filters.Add("transpose=2"); break;
+            filters.AddRange(GpuShaderFilters(info, s, method));
+            if (s.FrameRate is > 0)
+                filters.Add($"fps={F(s.FrameRate.Value)}");
+            filters.Add("setsar=1");
+            return filters;
         }
         var flags = s.Algorithm switch
         {
@@ -187,6 +227,46 @@ public sealed class Converter
             filters.Add($"fps={F(s.FrameRate.Value)}");
         filters.Add("setsar=1");
         return filters;
+    }
+
+    internal static IEnumerable<string> RotationFilters(int rotate) => (((rotate % 360) + 360) % 360) switch
+    {
+        90 => ["transpose=1"],
+        180 => ["transpose=1", "transpose=1"],
+        270 => ["transpose=2"],
+        _ => [],
+    };
+
+    /// <summary>
+    /// Upscaling on the GPU with libplacebo and a shader (FSRCNNX or Anime4K). The frames are
+    /// tagged with the source's colours first, and libplacebo told to keep them, so the GPU
+    /// path doesn't shift colours on files that don't say what they use.
+    /// </summary>
+    internal static IEnumerable<string> GpuShaderFilters(MediaInfo info, ConversionSettings s, UpscaleMethod method)
+    {
+        var shader = UpscalerComponents.ShaderPath(method.Component!)
+                     ?? throw new InvalidOperationException($"{method.Component!.Label} isn't installed.");
+        var color = ColorSpec.For(info);
+        var (srcW, srcH) = s.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
+        var target = ScaledSize.For(srcW, srcH, s.Width, s.Height, s.ResizeMode);
+        yield return color.SetParams;
+        yield return $"libplacebo=w={target.Width}:h={target.Height}:upscaler=ewa_lanczossharp:downscaler=mitchell" +
+                     $":custom_shader_path={EscapeFilterPath(shader)}:{color.PlaceboOptions}";
+        yield return "format=yuv420p";
+        if (target.PostFilter != null)
+            yield return target.PostFilter;
+    }
+
+    /// <summary>
+    /// A file path as a filter option value. Backslashes become forward slashes (Windows), then
+    /// it's escaped twice: for the option (\ ' :) and for the filter graph (\ ' [ ] , ;).
+    /// Quoting can't express an apostrophe ("C:/Users/O'Brien/…"), escaping can.
+    /// </summary>
+    internal static string EscapeFilterPath(string path)
+    {
+        static string Escape(string text, string specials) =>
+            string.Concat(text.Select(c => specials.Contains(c) ? "\\" + c : c.ToString()));
+        return Escape(Escape(path.Replace('\\', '/'), "\\':"), "\\'[],;");
     }
 
     /// <summary>The scale (and pad/crop) filter for a target size, or null if unchanged.</summary>

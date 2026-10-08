@@ -9,6 +9,11 @@ internal static class TestEnvironment
     /// test runs never write into the real one.
     /// </summary>
     [ModuleInitializer]
-    internal static void UseTemporaryDataFolder() =>
+    internal static void UseTemporaryDataFolder()
+    {
         Environment.SetEnvironmentVariable("MYVIDEOEDITOR_DATA_DIR", Path.Combine(Path.GetTempPath(), "myvideoeditor-test-data"));
+        // Downloaded upscalers are shared between runs (they're large), but never with the real app.
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MYVIDEOEDITOR_TOOLS_DIR")))
+            Environment.SetEnvironmentVariable("MYVIDEOEDITOR_TOOLS_DIR", Path.Combine(Path.GetTempPath(), "myvideoeditor-test-tools"));
+    }
 }

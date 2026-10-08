@@ -95,13 +95,30 @@
                 <ComboBox Grid.Column="1" ItemsSource="{Binding ResizeModes}" SelectedItem="{Binding ResizeMode}" HorizontalAlignment="Stretch"
                           ToolTip.Tip="Fit: add black bars. Fill: crop the edges. Stretch: distort to fit." />
               </Grid>
-              <Grid ColumnDefinitions="110,*" IsEnabled="{Binding ResizeEnabled}">
-                <TextBlock Classes="name" Text="Scaling" />
-                <ComboBox Grid.Column="1" ItemsSource="{Binding Algorithms}" SelectedItem="{Binding Algorithm}" HorizontalAlignment="Stretch"
-                          ToolTip.Tip="Lanczos: sharp. Enhanced: Lanczos with sharpening and denoising, best for upscaling. AI super-resolution: Real-ESRGAN (when installed), slow but the most detailed." />
-              </Grid>
-              <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding !AiAvailable}"
-                         Text="AI upscaling appears here when Real-ESRGAN (realesrgan-ncnn-vulkan) is installed on your PATH." />
+              <TextBlock Text="UPSCALING" Classes="section" />
+              <StackPanel IsEnabled="{Binding ResizeEnabled}" Spacing="6">
+                <Grid ColumnDefinitions="110,*">
+                  <TextBlock Classes="name" Text="The video is" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding ContentTypes}" SelectedItem="{Binding Content}" HorizontalAlignment="Stretch"
+                            ToolTip.Tip="Camera: people, places, nature. Animation: cartoons, anime, games and screen recordings." />
+                </Grid>
+                <ComboBox ItemsSource="{Binding Scalings}" SelectedItem="{Binding SelectedScaling}" HorizontalAlignment="Stretch" MaxDropDownHeight="520">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:UpscaleOptionViewModel">
+                      <StackPanel Margin="0,2" Opacity="{Binding IsAvailable, Converter={x:Static vm:ConvertViewModel.AvailableOpacity}}">
+                        <TextBlock Text="{Binding Label}" />
+                        <TextBlock Text="{Binding Status}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="{Binding ScalingDescription}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
+                <Button Classes="tool" Content="{Binding DownloadLabel}" Command="{Binding DownloadScalingCommand}" IsVisible="{Binding ScalingNeedsDownload}"
+                        IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Free, and runs entirely on this computer once downloaded." />
+                <Button Classes="tool" Content="Test speed on this PC" Command="{Binding TestSpeedCommand}" IsEnabled="{Binding CanTestSpeed}"
+                        ToolTip.Tip="Times each method on a few frames of the first file, estimates the whole job and recommends one. Results are remembered." />
+                <TextBlock Text="{Binding SpeedText}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding SpeedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
 
               <TextBlock Text="PICTURE" Classes="section" />
               <Grid ColumnDefinitions="110,*">

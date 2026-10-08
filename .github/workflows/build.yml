@@ -38,9 +38,18 @@ jobs:
         run: |
           tools/fetch-ffmpeg.sh linux-x64 "$RUNNER_TEMP/ffmpeg"
           echo "MYVIDEOEDITOR_FFMPEG_DIR=$RUNNER_TEMP/ffmpeg/bin" >> "$GITHUB_ENV"
-      # A virtual X display, so the screen recording tests have something to record.
-      - name: Install Xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+      # A virtual X display, so the screen recording tests have something to record; and Mesa's
+      # software Vulkan, so the GPU upscaling tests run (slowly) without a graphics card.
+      - name: Install Xvfb and software Vulkan
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          echo "MYVIDEOEDITOR_ALLOW_SOFTWARE_GPU=1" >> "$GITHUB_ENV"
+          echo "MYVIDEOEDITOR_TOOLS_DIR=$RUNNER_TEMP/upscalers" >> "$GITHUB_ENV"
+      # The upscaler downloads are pinned by checksum, so they can be cached between runs.
+      - uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/upscalers
+          key: upscalers-${{ hashFiles('src/MyVideoEditor.Core/Upscaling/UpscalerComponents.cs') }}
       - name: Run tests
         run: xvfb-run -a -s "-screen 0 1280x800x24" dotnet test --configuration Release --logger "trx;LogFilePrefix=results" --results-directory TestResults
       # On failure: each failing test appears in the run's Annotations panel and summary.
