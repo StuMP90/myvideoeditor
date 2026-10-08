@@ -1,0 +1,452 @@
+using System.Collections.ObjectModel;
+using Avalonia.Media;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using MyVideoEditor.Core.Editing;
+using MyVideoEditor.Core.Graphics;
+using MyVideoEditor.Core.Media;
+using MyVideoEditor.Core.Model;
+using MyVideoEditor.Core.Rendering;
+using CoreTextAlignment = MyVideoEditor.Core.Model.TextAlignment;
+
+namespace MyVideoEditor.App.ViewModels;
+
+/// <summary>
+/// Settings of the selected clip. Every setter is an undoable edit; repeated changes to one
+/// setting (dragging a slider) undo as one step. After any change to the project (including
+/// undo), <see cref="Refresh"/> reloads the values from the model.
+/// </summary>
+public sealed partial class ClipInspectorViewModel : ObservableObject
+{
+    private readonly EditSession _session;
+
+    public ClipInspectorViewModel(EditSession session, string clipId)
+    {
+        _session = session;
+        ClipId = clipId;
+        RebuildEffects();
+    }
+
+    public string ClipId { get; }
+
+    private Clip? Clip => _session.Project.FindClip(ClipId)?.Clip;
+    private MediaClip? Media => Clip as MediaClip;
+    private TitleClip? Title => Clip as TitleClip;
+    private AnnotationClip? Annotation => Clip as AnnotationClip;
+    private MediaReference? MediaFile => Media is { } m ? _session.Project.FindMedia(m.MediaId) : null;
+
+    public bool Exists => Clip != null;
+    public bool IsMedia => Clip is MediaClip;
+    public bool IsTitle => Clip is TitleClip;
+    public bool IsAnnotation => Clip is AnnotationClip;
+    public bool IsVisual => Clip is not MediaClip || MediaFile?.HasVideo == true && OnVideoTrack;
+    public bool HasSound => IsMedia && MediaFile?.HasAudio == true && MediaFile.Kind != MediaKind.Image;
+    public bool CanChangeSpeed => IsMedia && MediaFile?.Kind != MediaKind.Image;
+    public bool OnVideoTrack => _session.Project.FindClip(ClipId)?.Track.Kind == TrackKind.Video;
+    public bool ShowsTransform => IsMedia && IsVisual;
+    public bool AnnotationHasText => Annotation?.Shape is AnnotationShape.Callout or AnnotationShape.Step;
+    public bool AnnotationHasStroke => Annotation?.Shape is AnnotationShape.Arrow or AnnotationShape.Rectangle or AnnotationShape.Ellipse;
+    public bool AnnotationHasStrength => Annotation?.Shape is AnnotationShape.Blur or AnnotationShape.Pixelate or AnnotationShape.Spotlight or AnnotationShape.Highlight;
+    public bool AnnotationHasColor => Annotation is { IsFilterShape: false, Shape: not AnnotationShape.Spotlight };
+
+    public string Heading => Clip switch
+    {
+        MediaClip => MediaFile?.Kind switch { MediaKind.Audio => "Audio clip", MediaKind.Image => "Image", _ => "Video clip" },
+        TitleClip => "Title",
+        AnnotationClip a => a.Shape switch
+        {
+            AnnotationShape.Blur => "Blur (redact)",
+            AnnotationShape.Pixelate => "Pixelate (redact)",
+            AnnotationShape.Zoom => "Zoom",
+            AnnotationShape.Step => "Step number",
+            _ => a.Shape.ToString(),
+        },
+        _ => "",
+    };
+
+    public string SourceText => MediaFile is { } m ? $"{m.Name}\n{m.Path}" : "";
+
+    // ---- timing ------------------------------------------------------------------------------
+
+    public string Name
+    {
+        get => Clip?.Name ?? "";
+        set => Set("Rename clip", c => c.Name = value, "name");
+    }
+
+    public string StartText
+    {
+        get => Core.Timecode.Format(Clip?.Start ?? 0);
+        set
+        {
+            if (Core.Timecode.TryParse(value, out var t, _session.Project.Settings.FrameRate))
+                _session.Editor.MoveClip(ClipId, t);
+            else
+                OnPropertyChanged();
+        }
+    }
+
+    public string DurationText
+    {
+        get => Core.Timecode.Format(Clip?.Duration ?? 0);
+        set
+        {
+            if (Core.Timecode.TryParse(value, out var d, _session.Project.Settings.FrameRate) && Clip is { } c)
+                _session.Editor.TrimEnd(ClipId, c.Start + d);
+            else
+                OnPropertyChanged();
+        }
+    }
+
+    public double FadeIn
+    {
+        get => Clip?.FadeIn ?? 0;
+        set => Set("Fade in", c => c.FadeIn = value, "fadein");
+    }
+
+    public double FadeOut
+    {
+        get => Clip?.FadeOut ?? 0;
+        set => Set("Fade out", c => c.FadeOut = value, "fadeout");
+    }
+
+    public double TransitionIn
+    {
+        get => Clip?.TransitionIn ?? 0;
+        set => Set("Dissolve", c => c.TransitionIn = value, "transition");
+    }
+
+    public double MaxFade => Math.Max(0.1, Math.Min(10, (Clip?.Duration ?? 1)));
+
+    public double Opacity
+    {
+        get => (Clip?.Opacity ?? 1) * 100;
+        set => Set("Opacity", c => c.Opacity = value / 100, "opacity");
+    }
+
+    // ---- media clips -------------------------------------------------------------------------
+
+    public double Volume
+    {
+        get => (Media?.Volume ?? 1) * 100;
+        set => Set("Volume", c => ((MediaClip)c).Volume = value / 100, "volume");
+    }
+
+    public bool AudioMuted
+    {
+        get => Media?.AudioMuted ?? false;
+        set => Set(value ? "Mute clip" : "Unmute clip", c => ((MediaClip)c).AudioMuted = value);
+    }
+
+    public double Speed
+    {
+        get => Media?.Speed ?? 1;
+        set => Set("Speed", c =>
+        {
+            // Keep the same stretch of footage: the clip gets shorter when faster.
+            var m = (MediaClip)c;
+            var source = m.Duration * m.Speed;
+            m.Speed = Math.Clamp(value, 0.1, 16);
+            m.Duration = source / m.Speed;
+        }, "speed");
+    }
+
+    public static IReadOnlyList<FitMode> FitModes { get; } = Enum.GetValues<FitMode>();
+
+    public FitMode Fit
+    {
+        get => Media?.Fit ?? FitMode.Fit;
+        set => Set("Fit", c => ((MediaClip)c).Fit = value);
+    }
+
+    public double Scale
+    {
+        get => (Media?.Scale ?? 1) * 100;
+        set => Set("Scale", c => ((MediaClip)c).Scale = value / 100, "scale");
+    }
+
+    public double OffsetX
+    {
+        get => Media?.OffsetX ?? 0;
+        set => Set("Position", c => ((MediaClip)c).OffsetX = Math.Round(value), "offsetx");
+    }
+
+    public double OffsetY
+    {
+        get => Media?.OffsetY ?? 0;
+        set => Set("Position", c => ((MediaClip)c).OffsetY = Math.Round(value), "offsety");
+    }
+
+    public double Rotation
+    {
+        get => Media?.Rotation ?? 0;
+        set => Set("Rotation", c => ((MediaClip)c).Rotation = value, "rotation");
+    }
+
+    public int CropLeft { get => Media?.CropLeft ?? 0; set => Set("Crop", c => ((MediaClip)c).CropLeft = Math.Max(0, value), "cropl"); }
+    public int CropRight { get => Media?.CropRight ?? 0; set => Set("Crop", c => ((MediaClip)c).CropRight = Math.Max(0, value), "cropr"); }
+    public int CropTop { get => Media?.CropTop ?? 0; set => Set("Crop", c => ((MediaClip)c).CropTop = Math.Max(0, value), "cropt"); }
+    public int CropBottom { get => Media?.CropBottom ?? 0; set => Set("Crop", c => ((MediaClip)c).CropBottom = Math.Max(0, value), "cropb"); }
+
+    [RelayCommand]
+    private void ResetTransform() => Set("Reset position", c =>
+    {
+        var m = (MediaClip)c;
+        m.Scale = 1;
+        m.OffsetX = m.OffsetY = m.Rotation = 0;
+        m.CropLeft = m.CropRight = m.CropTop = m.CropBottom = 0;
+        m.Fit = FitMode.Fit;
+    });
+
+    // ---- titles ------------------------------------------------------------------------------
+
+    public string Text
+    {
+        get => Title?.Text ?? Annotation?.Text ?? "";
+        set => Set("Text", c =>
+        {
+            if (c is TitleClip t)
+            {
+                t.Text = value;
+                t.Name = value.Split('\n')[0];
+            }
+            else if (c is AnnotationClip a)
+            {
+                a.Text = value;
+            }
+        }, "text");
+    }
+
+    public static IReadOnlyList<string> Fonts => FontResolver.InstalledFamilies;
+
+    public string FontFamily
+    {
+        get => string.IsNullOrEmpty(Title?.FontFamily) ? FontResolver.DefaultFamily : Title!.FontFamily;
+        set => Set("Font", c => ((TitleClip)c).FontFamily = value ?? "");
+    }
+
+    public double FontSize
+    {
+        get => Title?.FontSize ?? Annotation?.FontSize ?? 48;
+        set => Set("Text size", c =>
+        {
+            if (c is TitleClip t)
+                t.FontSize = value;
+            else if (c is AnnotationClip a)
+                a.FontSize = value;
+        }, "fontsize");
+    }
+
+    public bool Bold { get => Title?.Bold ?? false; set => Set("Bold", c => ((TitleClip)c).Bold = value); }
+    public bool Italic { get => Title?.Italic ?? false; set => Set("Italic", c => ((TitleClip)c).Italic = value); }
+    public bool Shadow { get => Title?.Shadow ?? false; set => Set("Shadow", c => ((TitleClip)c).Shadow = value); }
+
+    public static IReadOnlyList<CoreTextAlignment> Alignments { get; } = Enum.GetValues<CoreTextAlignment>();
+
+    public CoreTextAlignment Alignment
+    {
+        get => Title?.Alignment ?? CoreTextAlignment.Center;
+        set => Set("Alignment", c => ((TitleClip)c).Alignment = value);
+    }
+
+    public double OutlineWidth
+    {
+        get => Title?.OutlineWidth ?? 0;
+        set => Set("Outline", c => ((TitleClip)c).OutlineWidth = value, "outline");
+    }
+
+    public Color TextColor
+    {
+        get => ParseColor(Title?.Color ?? Annotation?.Color, Colors.White);
+        set => Set("Colour", c =>
+        {
+            if (c is TitleClip t)
+                t.Color = Hex(value);
+            else if (c is AnnotationClip a)
+                a.Color = Hex(value);
+        }, "color");
+    }
+
+    public Color OutlineColor
+    {
+        get => ParseColor(Title?.OutlineColor, Colors.Black);
+        set => Set("Outline colour", c => ((TitleClip)c).OutlineColor = Hex(value), "outlinecolor");
+    }
+
+    public bool HasBox
+    {
+        get => !string.IsNullOrEmpty(Title?.BoxColor);
+        set => Set(value ? "Add text box" : "Remove text box", c => ((TitleClip)c).BoxColor = value ? "#000000" : "");
+    }
+
+    public Color BoxColor
+    {
+        get => ParseColor(Title?.BoxColor, Colors.Black);
+        set => Set("Box colour", c => ((TitleClip)c).BoxColor = Hex(value), "boxcolor");
+    }
+
+    public double BoxOpacity
+    {
+        get => (Title?.BoxOpacity ?? 0.6) * 100;
+        set => Set("Box opacity", c => ((TitleClip)c).BoxOpacity = value / 100, "boxopacity");
+    }
+
+    public bool HasBackground
+    {
+        get => !string.IsNullOrEmpty(Title?.BackgroundColor);
+        set => Set(value ? "Add background" : "Remove background", c => ((TitleClip)c).BackgroundColor = value ? "#101418" : "");
+    }
+
+    public Color BackgroundColor
+    {
+        get => ParseColor(Title?.BackgroundColor, Colors.Black);
+        set => Set("Background colour", c => ((TitleClip)c).BackgroundColor = Hex(value), "bgcolor");
+    }
+
+    public double PositionX
+    {
+        get => (Title?.X ?? 0.5) * 100;
+        set => Set("Position", c => ((TitleClip)c).X = value / 100, "tx");
+    }
+
+    public double PositionY
+    {
+        get => (Title?.Y ?? 0.5) * 100;
+        set => Set("Position", c => ((TitleClip)c).Y = value / 100, "ty");
+    }
+
+    [RelayCommand]
+    private void PlaceTitle(string where) => Set("Position", c =>
+    {
+        var t = (TitleClip)c;
+        // Lower thirds sit on the left; the others are centred.
+        var centre = where != "lower";
+        t.Alignment = centre ? CoreTextAlignment.Center : CoreTextAlignment.Left;
+        (t.X, t.Y) = where switch
+        {
+            "top" => (0.5, 0.12),
+            "lower" => (0.06, 0.82),
+            "bottom" => (0.5, 0.92),
+            _ => (0.5, 0.5),
+        };
+    });
+
+    // ---- annotations -------------------------------------------------------------------------
+
+    public static IReadOnlyList<AnnotationShape> Shapes { get; } = Enum.GetValues<AnnotationShape>();
+
+    public AnnotationShape Shape
+    {
+        get => Annotation?.Shape ?? AnnotationShape.Rectangle;
+        set => Set("Shape", c =>
+        {
+            var a = (AnnotationClip)c;
+            a.Shape = value;
+            a.Strength = AnnotationClip.DefaultStrength(value);
+        });
+    }
+
+    public double StrokeWidth
+    {
+        get => Annotation?.StrokeWidth ?? 6;
+        set => Set("Line width", c => ((AnnotationClip)c).StrokeWidth = value, "stroke");
+    }
+
+    public double Strength
+    {
+        get => Annotation is { } a ? (a.Shape is AnnotationShape.Spotlight or AnnotationShape.Highlight ? a.Strength * 100 : a.Strength) : 0;
+        set => Set("Strength", c =>
+        {
+            var a = (AnnotationClip)c;
+            a.Strength = a.Shape is AnnotationShape.Spotlight or AnnotationShape.Highlight ? value / 100 : value;
+        }, "strength");
+    }
+
+    public string StrengthLabel => Annotation?.Shape switch
+    {
+        AnnotationShape.Blur => "Blur",
+        AnnotationShape.Pixelate => "Block size",
+        AnnotationShape.Spotlight => "Darkness %",
+        AnnotationShape.Highlight => "Opacity %",
+        _ => "Strength",
+    };
+
+    public double StrengthMax => Annotation?.Shape is AnnotationShape.Spotlight or AnnotationShape.Highlight ? 100 : 80;
+
+    // ---- effects -----------------------------------------------------------------------------
+
+    public ObservableCollection<EffectViewModel> Effects { get; } = [];
+
+    public IEnumerable<EffectDefinition> AvailableEffects => EffectCatalog.All.Where(e =>
+        (e.IsAudio && HasSound) || (!e.IsAudio && IsVisual));
+
+    public bool HasEffects => Effects.Count > 0;
+
+    [RelayCommand]
+    private void AddEffect(EffectDefinition? definition)
+    {
+        if (definition == null)
+            return;
+        Set($"Add {definition.Label}", c => c.Effects.Add(definition.CreateDefault()));
+        RebuildEffects();
+    }
+
+    internal void UpdateEffect(int index, string description, Action<Core.Model.Effect> change, string? mergeKey) =>
+        _session.Editor.UpdateClip(ClipId, description, c =>
+        {
+            if (index < c.Effects.Count)
+                change(c.Effects[index]);
+        }, mergeKey == null ? null : mergeKey + ClipId);
+
+    internal void RemoveEffect(int index)
+    {
+        Set("Remove effect", c =>
+        {
+            if (index < c.Effects.Count)
+                c.Effects.RemoveAt(index);
+        });
+        RebuildEffects();
+    }
+
+    private string _effectsSignature = "";
+
+    private void RebuildEffects()
+    {
+        var clip = Clip;
+        var signature = clip == null ? "" : string.Join("|", clip.Effects.Select(e => e.Type + e.Enabled + string.Join(",", e.Parameters.Values)));
+        if (signature == _effectsSignature && Effects.Count == (clip?.Effects.Count ?? 0))
+            return;
+        _effectsSignature = signature;
+        Effects.Clear();
+        if (clip == null)
+            return;
+        for (var i = 0; i < clip.Effects.Count; i++)
+        {
+            var def = EffectCatalog.Find(clip.Effects[i].Type);
+            if (def != null)
+                Effects.Add(new EffectViewModel(this, i, def, clip.Effects[i]));
+        }
+        OnPropertyChanged(nameof(HasEffects));
+    }
+
+    // ---- plumbing ----------------------------------------------------------------------------
+
+    /// <summary>Reloads everything from the model (after an edit, undo or redo).</summary>
+    public void Refresh()
+    {
+        RebuildEffects();
+        OnPropertyChanged(string.Empty);
+    }
+
+    private void Set(string description, Action<Clip> change, string? mergeKey = null)
+    {
+        if (Clip == null)
+            return;
+        _session.Editor.UpdateClip(ClipId, description, change, mergeKey == null ? null : mergeKey + ":" + ClipId);
+    }
+
+    private static Color ParseColor(string? text, Color fallback) =>
+        !string.IsNullOrEmpty(text) && Color.TryParse(text, out var c) ? c : fallback;
+
+    private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+}

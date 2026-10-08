@@ -1,0 +1,115 @@
+name: Build and Release
+
+# Pushing a tag vX.Y.Z (git tag v1.0.7 && git push origin v1.0.7) builds that version, then
+# creates the GitHub release "Release v1.0.7" with generated notes and the binaries attached.
+# Pushes to main, pull requests and manual runs do the same tests and builds with version
+# 0.0.<run number>, kept as workflow artifacts only.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the release and upload its assets
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      msix_version: ${{ steps.version.outputs.msix_version }}
+      is_release: ${{ steps.version.outputs.is_release }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        run: packaging/ci-version.sh
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # The same FFmpeg build the release bundles, so tests exercise what ships.
+      - name: Fetch FFmpeg
+        run: |
+          tools/fetch-ffmpeg.sh linux-x64 "$RUNNER_TEMP/ffmpeg"
+          echo "MYVIDEOEDITOR_FFMPEG_DIR=$RUNNER_TEMP/ffmpeg/bin" >> "$GITHUB_ENV"
+      # A virtual X display, so the screen recording tests have something to record.
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Run tests
+        run: xvfb-run -a -s "-screen 0 1280x800x24" dotnet test --configuration Release --logger "trx;LogFilePrefix=results" --results-directory TestResults
+      # On failure: each failing test appears in the run's Annotations panel and summary.
+      - name: Report failed tests
+        if: failure()
+        run: python3 .github/scripts/test-report.py TestResults
+      - name: Keep test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: TestResults
+
+  linux:
+    needs: [version, test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: packaging/publish-linux.sh "${{ needs.version.outputs.version }}" x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: myvideoeditor-linux-x64
+          path: artifacts/linux/*.tar.gz
+
+  msix:
+    needs: [version, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # Unsigned: for Store submission (the Store signs it). Set the identity values from
+      # Partner Center as repository variables before submitting.
+      - name: Build MSIX
+        shell: pwsh
+        run: >
+          ./packaging/build-msix.ps1
+          -Version "${{ needs.version.outputs.msix_version }}"
+          -Architecture x64,arm64
+          -IdentityName "${{ vars.MSIX_IDENTITY_NAME || 'myvideoeditor.dev' }}"
+          -Publisher "${{ vars.MSIX_PUBLISHER || 'CN=myvideoeditor-dev' }}"
+          -PublisherDisplayName "${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'MyVideoEditor developer' }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: myvideoeditor-msix
+          path: artifacts/msix/*.msix
+
+  release:
+    # Only for version tags, and only once every build has succeeded.
+    if: needs.version.outputs.is_release == 'true'
+    needs: [version, linux, msix]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: Release ${{ github.ref_name }}
+          files: |
+            dist/*.msix
+            dist/*.tar.gz
+          draft: false
+          prerelease: false
+          generate_release_notes: true

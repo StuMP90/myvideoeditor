@@ -1,0 +1,133 @@
+using MyVideoEditor.Core.Diagnostics;
+using MyVideoEditor.Core.Media;
+using MyVideoEditor.Core.Model;
+using MyVideoEditor.Core.Rendering;
+
+namespace MyVideoEditor.Core.Export;
+
+public sealed record ExportSettings
+{
+    public required OutputFormat Format { get; init; }
+    public Quality Quality { get; init; } = Quality.Standard;
+    /// <summary>Output size; null = the project's size. Graphics are drawn at this size, so they stay sharp.</summary>
+    public int? Width { get; init; }
+    public int? Height { get; init; }
+    /// <summary>Part of the timeline to export; null = all of it.</summary>
+    public double? RangeStart { get; init; }
+    public double? RangeEnd { get; init; }
+}
+
+/// <summary>Renders a project to a file.</summary>
+public sealed class ProjectExporter
+{
+    private readonly FfmpegLocator _locator;
+    private readonly FfmpegRunner _runner;
+
+    public ProjectExporter(FfmpegLocator? locator = null)
+    {
+        _locator = locator ?? FfmpegLocator.Default;
+        _runner = new FfmpegRunner(_locator);
+    }
+
+    /// <summary>
+    /// Exports to <paramref name="outputPath"/>. The file is written under a temporary name and
+    /// renamed when complete, so a cancelled or failed export never leaves a broken file behind.
+    /// Returns warnings (e.g. missing media that was left out).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> ExportAsync(Project project, string outputPath, ExportSettings settings,
+        IProgress<FfmpegProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var caps = _locator.Capabilities;
+        var format = settings.Format;
+        var plan = RenderPlanBuilder.Build(project, new RenderOptions
+        {
+            RangeStart = settings.RangeStart ?? 0,
+            RangeEnd = settings.RangeEnd,
+            Width = settings.Width,
+            Height = settings.Height,
+            IncludeVideo = format.HasVideo,
+            IncludeAudio = format.HasAudio,
+            Capabilities = caps,
+            ScaleFlags = "lanczos",
+        });
+
+        var output = new List<string>();
+        if (format.IsGif)
+        {
+            plan = WithGifPalette(plan, format.MaxFrameRate ?? 15);
+        }
+        else if (format.HasVideo)
+        {
+            output.AddRange(["-r", RenderPlan.F(plan.FrameRate)]);
+        }
+        output.AddRange(format.CodecArguments(caps, settings.Quality));
+        output.AddRange(["-t", RenderPlan.F(plan.Duration), "-y"]);
+
+        var full = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        var partial = Path.Combine(Path.GetDirectoryName(full)!, Path.GetFileNameWithoutExtension(full) + ".partial" + Path.GetExtension(full));
+        output.Add(partial);
+
+        var args = plan.BuildArguments(output, caps);
+        Log.Info("export", $"Exporting {project.Name} to {full} ({format.Label}, {settings.Quality}, {plan.Width}x{plan.Height}, {plan.Duration:0.##}s, {plan.InputCount} inputs).");
+        try
+        {
+            await _runner.RunAsync(args, TimeSpan.FromSeconds(plan.Duration), progress, cancellationToken).ConfigureAwait(false);
+            File.Move(partial, full, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(partial);
+        }
+        return plan.Warnings;
+    }
+
+    /// <summary>Saves one frame of the timeline as a PNG (for bug reports and thumbnails).</summary>
+    public async Task ExportFrameAsync(Project project, double time, string outputPath, int? width = null, int? height = null,
+        CancellationToken cancellationToken = default)
+    {
+        var plan = FramePlan(project, time, width, height);
+        var args = plan.BuildArguments(["-frames:v", "1", "-update", "1", "-y", outputPath], _locator.Capabilities);
+        await _runner.RunAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>A plan rendering just the frame at <paramref name="time"/> (video only).</summary>
+    public static RenderPlan FramePlan(Project project, double time, int? width, int? height, FfmpegCapabilities? caps = null)
+    {
+        var frame = 1.0 / Math.Max(1, project.Settings.FrameRate);
+        var end = Math.Max(project.Duration, frame);
+        var start = Math.Clamp(time, 0, Math.Max(0, end - frame));
+        return RenderPlanBuilder.Build(project, new RenderOptions
+        {
+            RangeStart = start,
+            RangeEnd = start + frame,
+            Width = width,
+            Height = height,
+            IncludeAudio = false,
+            Capabilities = caps,
+            ScaleFlags = "lanczos",
+        });
+    }
+
+    /// <summary>GIFs look far better with a palette made from the clip itself.</summary>
+    internal static RenderPlan WithGifPalette(RenderPlan plan, double maxFps)
+    {
+        var fps = Math.Min(plan.FrameRate, maxFps);
+        var graph = plan.FilterGraph +
+                    $";\n[{plan.VideoOutput}]fps={RenderPlan.F(fps)},split[gif_a][gif_b];" +
+                    "\n[gif_a]palettegen=stats_mode=diff[gif_palette];" +
+                    "\n[gif_b][gif_palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle[gif]";
+        return plan with { FilterGraph = graph, VideoOutput = "gif", AudioOutput = null };
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+}

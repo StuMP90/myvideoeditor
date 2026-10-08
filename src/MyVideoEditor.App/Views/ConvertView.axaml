@@ -1,0 +1,137 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MyVideoEditor.App.ViewModels"
+             x:Class="MyVideoEditor.App.Views.ConvertView"
+             x:DataType="vm:ConvertViewModel">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.name">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0.8" />
+    </Style>
+  </UserControl.Styles>
+  <Grid ColumnDefinitions="*,380">
+    <!-- Queue -->
+    <DockPanel Margin="16,12,8,16">
+      <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,10">
+        <TextBlock Text="Convert, resize and upscale" Classes="h1" />
+        <TextBlock Classes="muted" TextWrapping="Wrap"
+                   Text="Change file formats, make videos bigger or smaller, change the frame rate, trim or rotate. Add files, choose settings on the right, then Convert. Your originals are never changed." />
+      </StackPanel>
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+        <Button Content="＋ Add files…" Command="{Binding AddFilesCommand}" />
+        <Button Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
+      </StackPanel>
+      <Border x:Name="DropZone" Classes="panel" BorderThickness="1" CornerRadius="6">
+        <Panel>
+          <TextBlock Text="Drop video or audio files here" HorizontalAlignment="Center" VerticalAlignment="Center" Classes="muted" FontSize="15"
+                     IsVisible="{Binding !Jobs.Count}" />
+          <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding Jobs}" Margin="8">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:ConvertJobViewModel">
+                  <Border Background="#10FFFFFF" CornerRadius="4" Padding="10,8" Margin="0,3">
+                    <DockPanel>
+                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="tool" Content="Show" IsVisible="{Binding IsDone}"
+                                Command="{Binding $parent[ItemsControl].((vm:ConvertViewModel)DataContext).OpenOutputCommand}" CommandParameter="{Binding}" />
+                        <Button Classes="tool" Content="✕" IsVisible="{Binding !IsActive}" ToolTip.Tip="Remove from the list"
+                                Command="{Binding $parent[ItemsControl].((vm:ConvertViewModel)DataContext).RemoveJobCommand}" CommandParameter="{Binding}" />
+                      </StackPanel>
+                      <StackPanel Spacing="3">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Details}" Classes="muted" FontSize="12" />
+                        <ProgressBar Value="{Binding Progress}" Maximum="100" IsVisible="{Binding IsActive}" Height="4" MinHeight="4" />
+                        <TextBlock Text="{Binding StateText}" FontSize="12" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </DockPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Panel>
+      </Border>
+    </DockPanel>
+
+    <!-- Settings -->
+    <Border Grid.Column="1" Classes="panel" BorderThickness="1,0,0,0">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Margin="16" Spacing="8">
+          <TextBlock Text="{Binding Status}" Classes="warning" IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsRunning}" />
+            <Button Classes="accent" Content="Convert" Command="{Binding StartCommand}" IsEnabled="{Binding CanStart}" MinWidth="110" />
+          </StackPanel>
+        </StackPanel>
+        <ScrollViewer>
+          <StackPanel Margin="16,12" Spacing="6">
+            <TextBlock Text="FORMAT" Classes="section" />
+            <ComboBox ItemsSource="{Binding Formats}" SelectedItem="{Binding Format}" HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Grid ColumnDefinitions="110,*">
+              <TextBlock Classes="name" Text="Quality" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding Qualities}" SelectedItem="{Binding Quality}" HorizontalAlignment="Stretch" IsEnabled="{Binding ReencodeOptionsEnabled}" />
+            </Grid>
+            <CheckBox IsChecked="{Binding Remux}" Content="Don't re-encode (fast, lossless)"
+                      ToolTip.Tip="Copy the video and sound as they are into the new container. Only works when the new format supports the existing codecs; trimming then cuts at the nearest keyframes." />
+
+            <StackPanel IsVisible="{Binding FormatHasVideo}" IsEnabled="{Binding ReencodeOptionsEnabled}" Spacing="6">
+              <TextBlock Text="SIZE" Classes="section" />
+              <ComboBox ItemsSource="{Binding SizePresets}" SelectedItem="{Binding SizePreset}" HorizontalAlignment="Stretch" />
+              <Grid ColumnDefinitions="*,Auto,*" IsVisible="{Binding IsCustomSize}">
+                <TextBox Text="{Binding CustomWidth}" Watermark="Width" />
+                <TextBlock Grid.Column="1" Text="×" VerticalAlignment="Center" Margin="6,0" />
+                <TextBox Grid.Column="2" Text="{Binding CustomHeight}" Watermark="Height" />
+              </Grid>
+              <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding IsCustomSize}"
+                         Text="Leave one empty to keep the shape." />
+              <Grid ColumnDefinitions="110,*" IsEnabled="{Binding ResizeEnabled}">
+                <TextBlock Classes="name" Text="Shape" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding ResizeModes}" SelectedItem="{Binding ResizeMode}" HorizontalAlignment="Stretch"
+                          ToolTip.Tip="Fit: add black bars. Fill: crop the edges. Stretch: distort to fit." />
+              </Grid>
+              <Grid ColumnDefinitions="110,*" IsEnabled="{Binding ResizeEnabled}">
+                <TextBlock Classes="name" Text="Scaling" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding Algorithms}" SelectedItem="{Binding Algorithm}" HorizontalAlignment="Stretch"
+                          ToolTip.Tip="Lanczos: sharp. Enhanced: Lanczos with sharpening and denoising, best for upscaling. AI super-resolution: Real-ESRGAN (when installed), slow but the most detailed." />
+              </Grid>
+              <TextBlock Classes="muted" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding !AiAvailable}"
+                         Text="AI upscaling appears here when Real-ESRGAN (realesrgan-ncnn-vulkan) is installed on your PATH." />
+
+              <TextBlock Text="PICTURE" Classes="section" />
+              <Grid ColumnDefinitions="110,*">
+                <TextBlock Classes="name" Text="Frame rate" />
+                <TextBox Grid.Column="1" Text="{Binding FrameRate}" Watermark="Same as source" />
+              </Grid>
+              <Grid ColumnDefinitions="110,*">
+                <TextBlock Classes="name" Text="Rotate" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding Rotations}" SelectedItem="{Binding Rotate}" HorizontalAlignment="Stretch" />
+              </Grid>
+              <CheckBox IsChecked="{Binding Deinterlace}" Content="Deinterlace (old TV / camcorder footage)" />
+            </StackPanel>
+
+            <TextBlock Text="TRIM" Classes="section" />
+            <Grid ColumnDefinitions="*,Auto,*">
+              <TextBox Text="{Binding TrimStart}" Watermark="From (e.g. 0:05)" />
+              <TextBlock Grid.Column="1" Text="–" VerticalAlignment="Center" Margin="6,0" />
+              <TextBox Grid.Column="2" Text="{Binding TrimEnd}" Watermark="To (end)" />
+            </Grid>
+            <CheckBox IsChecked="{Binding RemoveAudio}" Content="Remove the sound" IsVisible="{Binding FormatHasVideo}" />
+
+            <TextBlock Text="SAVE TO" Classes="section" />
+            <TextBlock Text="{Binding OutputFolderText}" TextWrapping="Wrap" FontSize="12" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Classes="tool" Content="Choose folder…" Command="{Binding ChooseFolderCommand}" />
+              <Button Classes="tool" Content="Next to each file" Command="{Binding SameFolderCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+  </Grid>
+</UserControl>

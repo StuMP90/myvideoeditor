@@ -1,0 +1,71 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MyVideoEditor.App.ViewModels"
+        x:Class="MyVideoEditor.App.Views.ExportWindow"
+        x:DataType="vm:ExportViewModel"
+        Title="Export video"
+        Width="560" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+  <Window.Styles>
+    <Style Selector="TextBlock.name">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0.8" />
+    </Style>
+  </Window.Styles>
+  <StackPanel Margin="20" Spacing="10">
+    <Grid ColumnDefinitions="110,*" IsEnabled="{Binding CanEdit}">
+      <TextBlock Classes="name" Text="Format" />
+      <ComboBox Grid.Column="1" ItemsSource="{Binding Formats}" SelectedItem="{Binding Format}" HorizontalAlignment="Stretch">
+        <ComboBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Label}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+    </Grid>
+    <TextBlock Text="{Binding FormatDescription}" Classes="muted" FontSize="12" Margin="110,-4,0,0" TextWrapping="Wrap" />
+    <Grid ColumnDefinitions="110,*" IsEnabled="{Binding CanEdit}">
+      <TextBlock Classes="name" Text="Quality" />
+      <ComboBox Grid.Column="1" ItemsSource="{Binding Qualities}" SelectedItem="{Binding Quality}" HorizontalAlignment="Stretch"
+                ToolTip.Tip="High: visually lossless. Standard: good quality. Small: for sharing in tickets and chat." />
+    </Grid>
+    <Grid ColumnDefinitions="110,*" IsEnabled="{Binding CanEdit}" IsVisible="{Binding FormatHasVideo}">
+      <TextBlock Classes="name" Text="Size" />
+      <ComboBox Grid.Column="1" ItemsSource="{Binding Sizes}" SelectedItem="{Binding Size}" HorizontalAlignment="Stretch">
+        <ComboBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Label}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+    </Grid>
+    <Grid ColumnDefinitions="110,*,Auto,*" IsEnabled="{Binding CanEdit}">
+      <TextBlock Classes="name" Text="Part" />
+      <TextBox Grid.Column="1" Text="{Binding RangeStart}" ToolTip.Tip="Start time" />
+      <TextBlock Grid.Column="2" Text="to" VerticalAlignment="Center" Margin="8,0" />
+      <TextBox Grid.Column="3" Text="{Binding RangeEnd}" ToolTip.Tip="End time" />
+    </Grid>
+    <Grid ColumnDefinitions="110,*,Auto" IsEnabled="{Binding CanEdit}">
+      <TextBlock Classes="name" Text="Save as" />
+      <TextBox Grid.Column="1" Text="{Binding OutputPath}" />
+      <Button Grid.Column="2" Content="…" Command="{Binding BrowseCommand}" Margin="6,0,0,0" />
+    </Grid>
+
+    <ProgressBar Value="{Binding Progress}" Maximum="100" Height="6" MinHeight="6" Margin="0,8,0,0" IsVisible="{Binding IsExporting}" />
+    <TextBlock Text="{Binding ProgressText}" />
+    <TextBlock Text="{Binding Error}" Classes="error" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+    <TextBlock Text="{Binding Warnings}" Classes="warning" IsVisible="{Binding Warnings, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+    <DockPanel Margin="0,8,0,0">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+        <Button Content="Close" Command="{Binding CancelCommand}" IsVisible="{Binding !IsExporting}" IsCancel="True" />
+        <Button Content="Cancel export" Command="{Binding CancelCommand}" IsVisible="{Binding IsExporting}" />
+        <Button Classes="accent" Content="Export" Command="{Binding ExportCommand}" IsEnabled="{Binding CanEdit}" IsDefault="True" MinWidth="100" />
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsFinished}">
+        <Button Content="Play" Command="{Binding OpenFileCommand}" />
+        <Button Content="Show in folder" Command="{Binding ShowInFolderCommand}" />
+      </StackPanel>
+    </DockPanel>
+  </StackPanel>
+</Window>

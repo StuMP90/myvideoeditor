@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest template. build-msix.ps1 fills in the $(...) tokens.
+
+  For a Microsoft Store submission, IdentityName, Publisher and PublisherDisplayName must be
+  exactly the values shown in Partner Center (Product management > Product identity).
+  The Store re-signs the package, so it does not need to be signed for submission.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="$(IdentityName)"
+    Publisher="$(Publisher)"
+    Version="$(Version)"
+    ProcessorArchitecture="$(Architecture)" />
+
+  <Properties>
+    <DisplayName>MyVideoEditor</DisplayName>
+    <PublisherDisplayName>$(PublisherDisplayName)</PublisherDisplayName>
+    <Logo>Images\StoreLogo.png</Logo>
+    <Description>Multi-track video editor with titles, effects, format conversion, upscaling, and screen recording with annotations.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="myvideoeditor" Executable="myvideoeditor.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="MyVideoEditor"
+        Description="Edit, convert, upscale and record video"
+        BackgroundColor="transparent"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Images\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- "Open with MyVideoEditor" for project files and common video files. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="mveproj">
+            <uap:DisplayName>MyVideoEditor project</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.mveproj</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="video">
+            <uap:DisplayName>Video</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.mp4</uap:FileType>
+              <uap:FileType>.mkv</uap:FileType>
+              <uap:FileType>.mov</uap:FileType>
+              <uap:FileType>.webm</uap:FileType>
+              <uap:FileType>.avi</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Desktop (full trust) app: required for an Avalonia/.NET Win32 app in the Store. -->
+    <rescap:Capability Name="runFullTrust" />
+    <!-- Recording sound with a screen capture. -->
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+</Package>

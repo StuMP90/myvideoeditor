@@ -1,0 +1,114 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MyVideoEditor.App.ViewModels"
+             xmlns:capture="using:MyVideoEditor.Core.Capture"
+             x:Class="MyVideoEditor.App.Views.CaptureView"
+             x:DataType="vm:CaptureViewModel">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.name">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Opacity" Value="0.8" />
+    </Style>
+  </UserControl.Styles>
+  <Grid ColumnDefinitions="440,*">
+    <!-- Source and options -->
+    <Border Classes="panel" BorderThickness="0,0,1,0">
+      <ScrollViewer>
+        <StackPanel Margin="16,12" Spacing="6">
+          <TextBlock Text="Record your screen" Classes="h1" />
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="Capture a window, a screen or a region for bug reports and demos, then annotate it with arrows, boxes, callouts, zooms and blurred-out private details." />
+          <Border Background="#33F5C26B" CornerRadius="4" Padding="10,8" IsVisible="{Binding IsWayland}" Margin="0,6,0,0">
+            <TextBlock Text="{Binding WaylandNote}" TextWrapping="Wrap" FontSize="12" />
+          </Border>
+
+          <DockPanel Margin="0,10,0,0">
+            <Button DockPanel.Dock="Right" Classes="tool" Content="↻ Refresh" Command="{Binding RefreshCommand}" ToolTip.Tip="Update the list of windows and sound devices" />
+            <TextBlock Text="WHAT TO RECORD" Classes="section" Margin="0" VerticalAlignment="Center" />
+          </DockPanel>
+          <ListBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" MaxHeight="260">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="capture:CaptureTarget">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Right" Text="{Binding SizeText}" Classes="muted" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center" />
+                  <TextBlock DockPanel.Dock="Left" Text="{Binding KindLabel}" Classes="muted" FontSize="11" Width="52" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                </DockPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <Button Content="⬚ Select a region…" Command="{Binding PickRegionCommand}" ToolTip.Tip="Drag out a rectangle on the screen" />
+
+          <TextBlock Text="OPTIONS" Classes="section" />
+          <Grid ColumnDefinitions="140,*">
+            <TextBlock Classes="name" Text="Frame rate" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding FrameRates}" SelectedItem="{Binding FrameRate}" HorizontalAlignment="Stretch" />
+          </Grid>
+          <Grid ColumnDefinitions="140,*">
+            <TextBlock Classes="name" Text="Countdown (s)" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Countdowns}" SelectedItem="{Binding Countdown}" HorizontalAlignment="Stretch" />
+          </Grid>
+          <CheckBox IsChecked="{Binding ShowCursor}" Content="Show the mouse pointer" />
+          <CheckBox IsChecked="{Binding Minimise}" Content="Hide this window while recording" />
+
+          <TextBlock Text="SOUND" Classes="section" />
+          <TextBlock Text="No sound devices found." Classes="muted" FontSize="12" IsVisible="{Binding !AudioDevices.Count}" />
+          <ItemsControl ItemsSource="{Binding AudioDevices}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:AudioDeviceViewModel">
+                <CheckBox IsChecked="{Binding IsSelected}" Content="{Binding Name}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock Text="SAVE TO" Classes="section" />
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="tool" Content="Change…" Command="{Binding ChooseFolderCommand}" />
+            <TextBlock Text="{Binding OutputFolder}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+          </DockPanel>
+
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,16,0,0" IsVisible="{Binding IsIdle}">
+            <Button Classes="record" Content="●  Start recording" Command="{Binding StartRecordingCommand}" IsEnabled="{Binding HasSource}" MinWidth="160" />
+            <Button Content="📷  Screenshot" Command="{Binding ScreenshotCommand}" IsEnabled="{Binding HasSource}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,16,0,0" IsVisible="{Binding !IsIdle}">
+            <Button Classes="record" Content="■  Stop" Command="{Binding StopRecordingCommand}" MinWidth="120" />
+            <TextBlock Text="{Binding Elapsed}" FontSize="20" VerticalAlignment="Center" FontFamily="Cascadia Mono, DejaVu Sans Mono, Consolas, monospace" />
+          </StackPanel>
+          <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,6,0,0" />
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- Results -->
+    <DockPanel Grid.Column="1" Margin="16,12">
+      <TextBlock DockPanel.Dock="Top" Text="RECORDINGS AND SCREENSHOTS" Classes="section" />
+      <Panel>
+        <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !Results.Count}" Margin="0,8"
+                   Text="Recordings appear here. Choose Edit to add arrows, boxes, callouts, zooms, blur and titles, then export a small MP4 or GIF for your bug report." />
+        <ScrollViewer>
+          <ItemsControl ItemsSource="{Binding Results}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:CaptureResultViewModel">
+                <Border Background="#10FFFFFF" CornerRadius="4" Padding="10,8" Margin="0,3">
+                  <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                      <Button Classes="accent" Content="Edit &amp; annotate" Command="{Binding $parent[ItemsControl].((vm:CaptureViewModel)DataContext).EditCommand}" CommandParameter="{Binding}" />
+                      <Button Classes="tool" Content="Play" Command="{Binding $parent[ItemsControl].((vm:CaptureViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}" />
+                      <Button Classes="tool" Content="Convert" IsVisible="{Binding !IsImage}" Command="{Binding $parent[ItemsControl].((vm:CaptureViewModel)DataContext).ConvertCommand}" CommandParameter="{Binding}" />
+                      <Button Classes="tool" Content="Show" Command="{Binding $parent[ItemsControl].((vm:CaptureViewModel)DataContext).ShowInFolderCommand}" CommandParameter="{Binding}" />
+                    </StackPanel>
+                    <StackPanel>
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Details}" Classes="muted" FontSize="12" />
+                    </StackPanel>
+                  </DockPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Panel>
+    </DockPanel>
+  </Grid>
+</UserControl>

@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MyVideoEditor.App.ViewModels"
+        xmlns:views="using:MyVideoEditor.App.Views"
+        x:Class="MyVideoEditor.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}"
+        Icon="/Assets/myvideoeditor.ico"
+        Width="1440" Height="900"
+        MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterScreen">
+
+  <Window.Styles>
+    <Style Selector="TabItem">
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="14,0" />
+    </Style>
+  </Window.Styles>
+
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Background="#FFB4472E" Padding="12,8" IsVisible="{Binding FfmpegMissing}">
+      <TextBlock Text="{Binding FfmpegMissingText}" TextWrapping="Wrap" Foreground="White" />
+    </Border>
+    <Grid>
+      <TabControl x:Name="Tabs" SelectedIndex="{Binding SelectedTab}" Padding="0" Margin="0">
+        <TabItem Header="Edit">
+          <views:EditorView DataContext="{Binding Editor}" />
+        </TabItem>
+        <TabItem Header="Convert">
+          <views:ConvertView DataContext="{Binding Convert}" />
+        </TabItem>
+        <TabItem Header="Capture">
+          <views:CaptureView DataContext="{Binding Capture}" />
+        </TabItem>
+      </TabControl>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,10,0" Spacing="10">
+        <TextBlock Text="{Binding Editor.Title}" VerticalAlignment="Center" Classes="muted" MaxWidth="360" TextTrimming="CharacterEllipsis" />
+        <Button Content="Help" Click="OnHelpClick" ToolTip.Tip="Keyboard shortcuts and how things work (F1)" />
+      </StackPanel>
+    </Grid>
+  </DockPanel>
+</Window>

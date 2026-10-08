@@ -1,0 +1,139 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:MyVideoEditor.App.ViewModels"
+             xmlns:views="using:MyVideoEditor.App.Views"
+             xmlns:controls="using:MyVideoEditor.App.Controls"
+             x:Class="MyVideoEditor.App.Views.EditorView"
+             x:DataType="vm:EditorViewModel">
+  <DockPanel>
+    <!-- Toolbar -->
+    <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" Padding="8,6">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+          <Button Classes="tool" Content="Project…" Command="{Binding ProjectSettingsCommand}"
+                  ToolTip.Tip="Project size, frame rate and background colour" />
+          <Button Classes="tool" Content="Export frame" Command="{Binding ExportFrameCommand}"
+                  ToolTip.Tip="Save the frame at the playhead as a PNG (screenshots for bug reports)" />
+          <Button Classes="accent" Content="Export video…" Command="{Binding ExportCommand}" ToolTip.Tip="Render the timeline to a file (Ctrl+E)" />
+        </StackPanel>
+        <WrapPanel Orientation="Horizontal">
+          <Button Classes="tool" Content="New" Command="{Binding NewProjectCommand}" ToolTip.Tip="New project (Ctrl+N)" Margin="0,0,4,0" />
+          <Button Classes="tool" Content="Open…" Command="{Binding OpenProjectCommand}" ToolTip.Tip="Open a project (Ctrl+O)" Margin="0,0,4,0" />
+          <Button Classes="tool" Content="Save" Command="{Binding SaveCommand}" ToolTip.Tip="Save the project (Ctrl+S)" Margin="0,0,12,0" />
+          <Button Classes="tool" Content="＋ Import media" Command="{Binding ImportMediaCommand}" ToolTip.Tip="Add video, audio or image files (Ctrl+I), or drag them in" Margin="0,0,12,0" />
+          <Button Classes="tool" Content="↶" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" ToolTip.Tip="{Binding UndoTip}" Margin="0,0,4,0" />
+          <Button Classes="tool" Content="↷" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" ToolTip.Tip="{Binding RedoTip}" Margin="0,0,12,0" />
+          <Button Classes="tool" Content="✂ Split" Command="{Binding SplitCommand}" ToolTip.Tip="Cut clips at the playhead (S)" Margin="0,0,4,0" />
+          <Button Classes="tool" Content="🗑" Command="{Binding DeleteCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Delete selected clips (Del; Shift+Del also closes the gap)" Margin="0,0,12,0" />
+          <Button x:Name="TitleButton" Classes="tool" Content="T Title ▾" ToolTip.Tip="Add a title at the playhead (T)" Margin="0,0,12,0" />
+          <TextBlock Text="Annotate:" VerticalAlignment="Center" Classes="muted" Margin="0,0,6,0" />
+          <StackPanel x:Name="ToolButtons" Orientation="Horizontal" Spacing="2" />
+        </WrapPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Status bar -->
+    <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="10,4">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Right" Text="{Binding ProjectSummary}" Classes="muted" FontSize="12" />
+        <TextBlock Text="{Binding Status}" FontSize="12" TextTrimming="CharacterEllipsis" />
+      </DockPanel>
+    </Border>
+
+    <Grid RowDefinitions="*,5,280" x:Name="MainGrid">
+      <Grid ColumnDefinitions="250,5,*,5,320">
+        <!-- Media bin -->
+        <Border Grid.Column="0" Classes="panel" BorderThickness="0,0,1,0">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="MEDIA" Classes="section" Margin="10,8,10,4" />
+            <TextBlock DockPanel.Dock="Bottom" Text="Double-click or drag onto the timeline." Classes="muted" FontSize="11" Margin="10,4,10,8" TextWrapping="Wrap" />
+            <ListBox x:Name="MediaList" ItemsSource="{Binding Media}" SelectedItem="{Binding SelectedMedia}" Background="Transparent">
+              <ListBox.ItemTemplate>
+                <DataTemplate DataType="vm:MediaItemViewModel">
+                  <Grid ColumnDefinitions="64,*" Margin="0,2" ToolTip.Tip="{Binding Path}">
+                    <Border Width="60" Height="34" Background="#262B35" CornerRadius="3" ClipToBounds="True">
+                      <Panel>
+                        <TextBlock Text="{Binding KindLabel}" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.6" />
+                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                      </Panel>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                      <TextBlock Text="{Binding Summary}" Classes="muted" FontSize="11" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </DockPanel>
+        </Border>
+        <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="#11FFFFFF" />
+
+        <!-- Preview and transport -->
+        <DockPanel Grid.Column="2">
+          <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="8,6">
+            <Grid ColumnDefinitions="*,Auto,*">
+              <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="{Binding PlayheadText}" FontFamily="Cascadia Mono, DejaVu Sans Mono, Consolas, monospace" FontSize="14" VerticalAlignment="Center" />
+                <TextBlock Text="/" Classes="muted" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding DurationText}" Classes="muted" FontFamily="Cascadia Mono, DejaVu Sans Mono, Consolas, monospace" FontSize="12" VerticalAlignment="Center" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                <Button Classes="tool" Content="⏮" Command="{Binding GoToStartCommand}" ToolTip.Tip="Start (Home)" />
+                <Button Classes="tool" Content="⏪" Command="{Binding JumpToEdgeCommand}" CommandParameter="-1" ToolTip.Tip="Previous cut (↑)" />
+                <Button Classes="tool" Content="◀" Command="{Binding StepFramesCommand}" CommandParameter="-1" ToolTip.Tip="Previous frame (←)" />
+                <Button x:Name="PlayButton" Classes="accent" MinWidth="56" Content="▶" Command="{Binding PlayPauseCommand}" ToolTip.Tip="Play / pause (Space)" />
+                <Button Classes="tool" Content="▶|" Command="{Binding StepFramesCommand}" CommandParameter="1" ToolTip.Tip="Next frame (→)" />
+                <Button Classes="tool" Content="⏩" Command="{Binding JumpToEdgeCommand}" CommandParameter="1" ToolTip.Tip="Next cut (↓)" />
+                <Button Classes="tool" Content="⏭" Command="{Binding GoToEndCommand}" ToolTip.Tip="End (End)" />
+              </StackPanel>
+              <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                <TextBlock Text="🔊" VerticalAlignment="Center" ToolTip.Tip="Preview volume" />
+                <Slider Width="110" Minimum="0" Maximum="150" Value="{Binding PreviewVolume}" VerticalAlignment="Center" />
+                <TextBlock Text="No sound device" Classes="muted" FontSize="11" VerticalAlignment="Center" IsVisible="{Binding !HasAudioOutput}" />
+              </StackPanel>
+            </Grid>
+          </Border>
+          <controls:PreviewControl x:Name="Preview" />
+        </DockPanel>
+        <GridSplitter Grid.Column="3" ResizeDirection="Columns" Background="#11FFFFFF" />
+
+        <!-- Inspector -->
+        <Border Grid.Column="4" Classes="panel" BorderThickness="1,0,0,0">
+          <Panel>
+            <ScrollViewer IsVisible="{Binding Inspector, Converter={x:Static ObjectConverters.IsNotNull}}">
+              <views:InspectorView DataContext="{Binding Inspector}" Margin="12,6,14,16" />
+            </ScrollViewer>
+            <StackPanel Margin="14" Spacing="8" IsVisible="{Binding Inspector, Converter={x:Static ObjectConverters.IsNull}}">
+              <TextBlock Text="SETTINGS" Classes="section" />
+              <TextBlock TextWrapping="Wrap" Classes="muted" Text="Select a clip, title or annotation on the timeline or in the preview to change it: timing, fades, volume, position, text, colours and effects." />
+              <TextBlock TextWrapping="Wrap" Classes="muted" Text="For bug reports: record in the Capture tab, then pick Arrow, Box or Blur above the preview and drag on the picture." />
+            </StackPanel>
+          </Panel>
+        </Border>
+      </Grid>
+
+      <GridSplitter Grid.Row="1" ResizeDirection="Rows" Background="#11FFFFFF" />
+
+      <!-- Timeline -->
+      <DockPanel Grid.Row="2">
+        <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,1,0,1" Padding="8,3">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="TIMELINE" Classes="section" Margin="0,0,8,0" VerticalAlignment="Center" />
+            <Button Classes="tool" Content="−" Click="OnZoomOut" ToolTip.Tip="Zoom out (Ctrl+−, or Ctrl+wheel)" />
+            <Button Classes="tool" Content="＋" Click="OnZoomIn" ToolTip.Tip="Zoom in (Ctrl+=, or Ctrl+wheel)" />
+            <Button Classes="tool" Content="Fit" Click="OnZoomFit" ToolTip.Tip="Show the whole project (Ctrl+0)" />
+            <ToggleButton Classes="tool" Content="🧲 Snap" IsChecked="{Binding SnapEnabled}" ToolTip.Tip="Snap to clip edges and the playhead while dragging (hold Alt to override)" Margin="8,0,0,0" />
+            <Button Classes="tool" Content="＋ Video track" Command="{Binding AddTrackCommand}" CommandParameter="video" Margin="8,0,0,0" />
+            <Button Classes="tool" Content="＋ Audio track" Command="{Binding AddTrackCommand}" CommandParameter="audio" />
+            <TextBlock Classes="muted" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Text="Drag clips to move · drag edges to trim · M mute · H hide · L lock · right-click for more" />
+          </StackPanel>
+        </Border>
+        <ScrollBar x:Name="TimelineScroll" DockPanel.Dock="Bottom" Orientation="Horizontal" AllowAutoHide="False" />
+        <ScrollBar x:Name="TrackScroll" DockPanel.Dock="Right" Orientation="Vertical" AllowAutoHide="False" />
+        <controls:TimelineControl x:Name="Timeline" />
+      </DockPanel>
+    </Grid>
+  </DockPanel>
+</UserControl>
