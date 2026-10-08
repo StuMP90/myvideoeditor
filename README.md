@@ -72,11 +72,17 @@ video (camera footage, or animation and screen recordings).
 | **AI: anime, strongest** (Real-CUGAN) | Vulkan GPU | anime | ~8 s per frame |
 | **AI: photo detail** (Real-ESRGAN x4plus) | dedicated (gaming) GPU | camera footage | ~60 s per frame |
 
-- The GPU and AI components are downloaded on first use (70 KB to 47 MB, after asking), from each
-  project's GitHub release, pinned to an exact file and SHA-256 checksum. They're kept in the data
-  folder under `tools/`. Licences: FSRCNNX GPL-3.0, Anime4K MIT, Real-ESRGAN BSD-3-Clause,
-  Real-CUGAN MIT. They aren't bundled, so they don't add to the download for people who won't use
-  them.
+- **Windows (MSIX)** includes the AI upscalers (Real-ESRGAN and Real-CUGAN, about 90 MB): the
+  Store restricts apps that download and run programs, and Smart App Control blocks unsigned
+  downloaded programs, whereas inside the package they're signed with the app. The small GPU
+  shaders are downloaded on first use. **Linux** downloads all of them on first use (70 KB to 47 MB,
+  after asking), keeping the tarball smaller for people who won't use them.
+- Every component is pinned to an exact file and SHA-256 checksum in
+  `src/MyVideoEditor.Core/Upscaling/components.json`, which both the app and
+  `packaging/build-msix.ps1` read, so the bundled and downloaded copies can't drift apart. Downloads
+  go to the data folder under `tools/`. Licences: FSRCNNX GPL-3.0, Anime4K MIT, Real-ESRGAN MIT
+  (program) and BSD-3-Clause (models), Real-CUGAN MIT, ncnn BSD-3-Clause; the bundled ones' texts are
+  in `tools/notices/upscalers/` and go into `THIRD-PARTY-NOTICES.txt`.
 - The GPU is found through Vulkan: a dedicated card is preferred, then integrated graphics.
   Software renderers (llvmpipe) are never used for real work.
 - AI methods work on frames in batches sized to the free disk space, piped straight back into the
@@ -201,11 +207,12 @@ Version numbers come from git tags, as in zSSH: push a tag like `v1.0.7` and the
 (`.github/workflows/build.yml`) runs the tests, builds that version and creates the GitHub release
 with the binaries attached:
 
-- `MyVideoEditor_1.0.7.0_x64.msix` and `MyVideoEditor_1.0.7.0_arm64.msix`
+- `MyVideoEditor_1.0.7.0_x64.msix` and `MyVideoEditor_1.0.7.0_arm64.msix` (about 230 and 200 MB,
+  with FFmpeg and the AI upscalers; Windows on Arm runs the x64 upscalers under emulation)
 - `myvideoeditor-1.0.7-linux-x64.tar.gz`
 
 The tag must be `vMAJOR.MINOR.PATCH`. Other pushes build `0.0.<run number>` as workflow artifacts
-only. Local builds report `0.1.0`.
+only, kept for 14 days. Local builds report `0.1.0`.
 
 ```bash
 packaging/publish-linux.sh 0.1.0 x64      # → artifacts/linux/myvideoeditor-0.1.0-linux-x64.tar.gz

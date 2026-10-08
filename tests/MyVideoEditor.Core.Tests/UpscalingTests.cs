@@ -116,6 +116,41 @@ public class UpscalingTests
     }
 
     [Fact]
+    public void Bundled_copies_are_preferred_and_must_match_the_pinned_checksum()
+    {
+        var component = UpscalerComponents.RealEsrgan;
+        if (component.ForThisComputer is not { } download)
+            return;
+        var root = TestMedia.NewOutputDirectory();
+        var bundled = Path.Combine(root, "bundled");
+        var tools = Path.Combine(root, "tools");
+        void Mark(string dir, string sha)
+        {
+            Directory.CreateDirectory(Path.Combine(dir, component.Id));
+            File.WriteAllText(Path.Combine(dir, component.Id, ".installed"), sha);
+        }
+        Assert.Null(UpscalerComponents.Locate(component, bundled, tools));
+        Mark(tools, download.Sha256);
+        Assert.Equal(Path.Combine(tools, component.Id), UpscalerComponents.Locate(component, bundled, tools));
+        Mark(bundled, new string('f', 64)); // a different build: ignored
+        Assert.Equal(Path.Combine(tools, component.Id), UpscalerComponents.Locate(component, bundled, tools));
+        Mark(bundled, download.Sha256);
+        Assert.Equal(Path.Combine(bundled, component.Id), UpscalerComponents.Locate(component, bundled, tools));
+    }
+
+    [Fact]
+    public void Ai_programs_are_marked_for_bundling_in_the_msix_and_have_licence_texts()
+    {
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "MyVideoEditor.sln")))
+            root = Path.GetDirectoryName(root)!;
+        Assert.Equal(["realesrgan", "realcugan"], UpscalerComponents.All.Where(c => c.BundleInMsix).Select(c => c.Id));
+        foreach (var c in UpscalerComponents.All.Where(c => c.BundleInMsix))
+            Assert.True(File.Exists(Path.Combine(root, "tools", "notices", "upscalers", c.Id + ".txt")), c.Id);
+        Assert.Contains("components.json", File.ReadAllText(Path.Combine(root, "packaging", "build-msix.ps1")));
+    }
+
+    [Fact]
     public void Every_component_has_a_pinned_download_for_windows_and_linux_x64()
     {
         foreach (var c in UpscalerComponents.All)

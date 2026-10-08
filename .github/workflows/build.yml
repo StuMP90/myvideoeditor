@@ -62,6 +62,7 @@ jobs:
         with:
           name: test-results
           path: TestResults
+          retention-days: 14
 
   linux:
     needs: [version, test]
@@ -72,10 +73,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: packaging/publish-linux.sh "${{ needs.version.outputs.version }}" x64
+      # Test builds are kept for 14 days; a release's files are kept permanently on the release itself.
       - uses: actions/upload-artifact@v7
         with:
           name: myvideoeditor-linux-x64
           path: artifacts/linux/*.tar.gz
+          retention-days: ${{ needs.version.outputs.is_release == 'true' && 30 || 14 }}
 
   msix:
     needs: [version, test]
@@ -100,6 +103,7 @@ jobs:
         with:
           name: myvideoeditor-msix
           path: artifacts/msix/*.msix
+          retention-days: ${{ needs.version.outputs.is_release == 'true' && 30 || 14 }}
 
   release:
     # Only for version tags, and only once every build has succeeded.

@@ -15,8 +15,9 @@ from the app.
 
 ## Optional upscaler downloads
 
-Some upscaling methods in the Convert tab need a free component that isn't included in the app
-(GPU shaders, and the Real-ESRGAN and Real-CUGAN AI upscalers). It is downloaded only when you
+Some upscaling methods in the Convert tab need a free component that isn't included in the app:
+GPU shaders, and on Linux the Real-ESRGAN and Real-CUGAN AI upscalers (the Windows version includes
+those). It is downloaded only when you
 choose such a method (or the speed test offers it) and you confirm, directly from the component's own release page on GitHub
 (github.com), where GitHub's privacy statement applies:
 <https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement>. Nothing

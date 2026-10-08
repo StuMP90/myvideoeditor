@@ -56,7 +56,7 @@ public partial class HelpWindow : Window
         ("Convert", new (string?, string)[]
         {
             (null, "Converts files without a timeline: change format, resize (fit with bars, fill and crop, or stretch), upscale, change the frame rate, trim, rotate, or copy into a new container without re-encoding."),
-            (null, "Upscaling: CPU methods (Lanczos, Enhanced) work everywhere. With a graphics card (integrated is fine), Sharper detail (camera footage) and Cleaner lines (animation, screen recordings) are nearly as fast and crisper. AI methods (Real-ESRGAN, Real-CUGAN) are the strongest but slow without a dedicated graphics card. All are free and run on this computer; GPU and AI parts download on first use."),
+            (null, "Upscaling: CPU methods (Lanczos, Enhanced) work everywhere. With a graphics card (integrated is fine), Sharper detail (camera footage) and Cleaner lines (animation, screen recordings) are nearly as fast and crisper. AI methods (Real-ESRGAN, Real-CUGAN) are the strongest but slow without a dedicated graphics card. All are free and run on this computer. The Windows version includes the AI upscalers; the small GPU shaders (and, on Linux, the AI upscalers) download on first use, after asking."),
             (null, "Choose what the video is, set a size, then Test speed on this PC: it times each method on a few frames of your video and recommends the best one that finishes within an hour."),
         }),
         ("Capture", new (string?, string)[]

@@ -13,6 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Pinned upscaler downloads; also read by packaging/build-msix.ps1. -->
+    <EmbeddedResource Include="Upscaling\components.json" LogicalName="components.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="MyVideoEditor.Core.Tests" />
     <InternalsVisibleTo Include="myvideoeditor" />
     <InternalsVisibleTo Include="MyVideoEditor.App.Tests" />

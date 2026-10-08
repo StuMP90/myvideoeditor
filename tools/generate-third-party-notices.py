@@ -118,6 +118,7 @@ def main():
     parser.add_argument("--rid", help="runtime identifier the build targets, e.g. linux-x64 or win-x64")
     parser.add_argument("--output", required=True)
     parser.add_argument("--ffmpeg", help="folder with the bundled FFmpeg (FFMPEG-SOURCE.txt, FFMPEG-LICENSE.txt)")
+    parser.add_argument("--upscalers", help="folder with bundled AI upscalers (one subfolder per component, as in the MSIX)")
     args = parser.parse_args()
 
     assets = json.load(open(args.assets, encoding="utf-8"))
@@ -138,6 +139,19 @@ def main():
         add("FFmpeg (bundled in the ffmpeg folder, run as separate programs)",
             ["https://ffmpeg.org", "Licence: GPL-3.0-or-later (full text: ffmpeg/FFMPEG-LICENSE.txt)"],
             read(source))
+
+    if args.upscalers:
+        bundled = sorted(d for d in os.listdir(args.upscalers) if os.path.exists(os.path.join(args.upscalers, d, ".installed")))
+        if not bundled:
+            print(f"error: no bundled upscalers found in {args.upscalers}", file=sys.stderr)
+            return 1
+        for component in bundled + ["ncnn"]:
+            text = os.path.join(NOTICES, "upscalers", f"{component}.txt")
+            if not os.path.exists(text):
+                print(f"error: no licence text for bundled upscaler {component} (expected {text})", file=sys.stderr)
+                return 1
+            body = read(text)
+            add(body.splitlines()[0].split(":")[0] + " (bundled in the upscalers folder)", [], body)
 
     pack = runtime_pack_dir(assets, args.rid, packages_root) if args.rid else None
     if pack:
