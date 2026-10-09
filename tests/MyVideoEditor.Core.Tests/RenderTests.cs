@@ -137,6 +137,120 @@ public class RenderTests
     }
 
     [Fact]
+    public async Task Dissolves_between_whole_clips_hold_the_last_frame()
+    {
+        // Neither clip has footage to spare beyond the cut: the red clip's last frame is held and dissolves into blue.
+        var (session, red) = await SessionWith(await TestMedia.ColorAsync("red", 3));
+        var blue = await ImportAsync(session, await TestMedia.ColorAsync("blue", 3));
+        var v1 = session.Project.Tracks.First(t => t.Name == "V1").Id;
+        session.Editor.AddMediaClip(red, 0, v1);
+        var b = session.Editor.AddMediaClip(blue, 3, v1);
+        session.Editor.UpdateClip(b, "dissolve", c => c.TransitionIn = 1);
+
+        var output = await ExportAsync(session);
+        Assert.InRange(TestMedia.FrameCount(output), 179, 181); // the timeline's length is unchanged (6 s at 30 fps)
+        var mid = TestMedia.PixelAt(output, 3.5, 160, 120);
+        Assert.InRange(mid.R, 70, 190);
+        Assert.InRange(mid.B, 70, 190);
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 2.5, 160, 120), Red));
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 4.5, 160, 120), Blue));
+
+        // The editor's preview frames show it too, including one taken part-way through the dissolve.
+        using var engine = new MyVideoEditor.Core.Playback.PlaybackEngine();
+        using var frame = await engine.RenderStillAsync(session.Project, 3.5, 160, 120);
+        var i = (60 * frame!.Width + 80) * 4; // BGRA
+        Assert.InRange(frame.Pixels[i + 2], 70, 190);
+        Assert.InRange(frame.Pixels[i], 70, 190);
+    }
+
+    [Fact]
+    public async Task Dissolves_hold_the_last_picture_when_the_sound_runs_longer()
+    {
+        // As in many downloaded videos: the red file's sound runs a second past its picture.
+        var (session, red) = await SessionWith(await TestMedia.ColorWithLongerSoundAsync("red", 3, 1));
+        var blue = await ImportAsync(session, await TestMedia.ColorAsync("blue", 3));
+        var v1 = session.Project.Tracks.First(t => t.Name == "V1").Id;
+        var a = session.Editor.AddMediaClip(red, 0, v1);
+        var end = session.Project.FindClip(a)!.Value.Clip.End;
+        var b = session.Editor.AddMediaClip(blue, end, v1);
+        session.Editor.UpdateClip(b, "dissolve", c => c.TransitionIn = 1);
+
+        var output = await ExportAsync(session);
+        var mid = TestMedia.PixelAt(output, end + 0.5, 160, 120);
+        Assert.InRange(mid.R, 70, 190);
+        Assert.InRange(mid.B, 70, 190);
+    }
+
+    /// <summary>Red (0–3 s) then blue (3–6 s) on one track, with a 1 s transition between them.</summary>
+    private static async Task<EditSession> TwoClipsWith(TransitionStyle style, TransitionDirection direction = TransitionDirection.Left, bool blueHasHandle = false)
+    {
+        var (session, red) = await SessionWith(await TestMedia.ColorAsync("red", 3));
+        var blue = await ImportAsync(session, await TestMedia.ColorAsync("blue", blueHasHandle ? 5 : 3));
+        var v1 = session.Project.Tracks.First(t => t.Name == "V1").Id;
+        session.Editor.AddMediaClip(red, 0, v1);
+        var b = session.Editor.AddMediaClip(blue, 3, v1);
+        if (blueHasHandle)
+        {
+            // Footage before its in-point, so the transition happens before the cut (2–3 s).
+            session.Editor.TrimStart(b, 4);
+            session.Editor.MoveClip(b, 3);
+            session.Editor.TrimEnd(b, 6);
+        }
+        session.Editor.UpdateClip(b, "transition", c =>
+        {
+            c.TransitionIn = 1;
+            c.TransitionStyle = style;
+            c.TransitionDirection = direction;
+        });
+        return session;
+    }
+
+    public static TheoryData<TransitionStyle> AllStyles() => [.. Enum.GetValues<TransitionStyle>()];
+
+    [Theory]
+    [MemberData(nameof(AllStyles))]
+    public async Task Every_transition_renders_and_keeps_the_timing(TransitionStyle style)
+    {
+        var session = await TwoClipsWith(style);
+        var output = await ExportAsync(session);
+        Assert.InRange(TestMedia.FrameCount(output), 179, 181);
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 2.5, 160, 120), Red));
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 4.5, 160, 120), Blue));
+        // A preview frame part-way through (its own short render) works too.
+        using var engine = new MyVideoEditor.Core.Playback.PlaybackEngine();
+        using var frame = await engine.RenderStillAsync(session.Project, 3.5, 160, 120);
+        Assert.NotNull(frame);
+    }
+
+    [Theory]
+    [InlineData(false, 3.5)] // whole clips: after the cut, from red's held last frame
+    [InlineData(true, 2.5)]  // blue has footage to spare: before the cut
+    public async Task Wipes_move_across_the_picture(bool blueHasHandle, double middle)
+    {
+        // Wipe left: the edge moves leftwards, so blue comes in from the right.
+        var session = await TwoClipsWith(TransitionStyle.Wipe, TransitionDirection.Left, blueHasHandle);
+        var output = await ExportAsync(session);
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, middle, 40, 120), Red), $"left {TestMedia.PixelAt(output, middle, 40, 120)}");
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, middle, 280, 120), Blue), $"right {TestMedia.PixelAt(output, middle, 280, 120)}");
+        // The same in a preview frame taken at that moment.
+        using var engine = new MyVideoEditor.Core.Playback.PlaybackEngine();
+        using var frame = await engine.RenderStillAsync(session.Project, middle, 320, 240);
+        int R(int x) => frame!.Pixels[(120 * frame.Width + x) * 4 + 2];
+        int B(int x) => frame!.Pixels[(120 * frame.Width + x) * 4];
+        Assert.True(R(40) > 200 && B(40) < 60, $"preview left {R(40)},{B(40)}");
+        Assert.True(B(280) > 200 && R(280) < 60, $"preview right {R(280)},{B(280)}");
+    }
+
+    [Fact]
+    public async Task Dip_to_black_goes_through_black()
+    {
+        var output = await ExportAsync(await TwoClipsWith(TransitionStyle.DipToBlack));
+        // xfade's curve reaches black about a third of the way through, then brings the next clip up.
+        var mid = TestMedia.PixelAt(output, 3.25, 160, 120);
+        Assert.True(mid.R + mid.G + mid.B < 60, $"middle {mid}");
+    }
+
+    [Fact]
     public async Task Fade_in_starts_from_the_background()
     {
         var (session, red) = await SessionWith(await TestMedia.ColorAsync("red", 2));

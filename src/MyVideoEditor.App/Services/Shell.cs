@@ -27,7 +27,15 @@ public static class Shell
         try
         {
             if (OperatingSystem.IsWindows())
-                Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { "/select," + file }, UseShellExecute = false });
+            {
+                // Explorer wants /select,"path": quoting the whole argument (as ArgumentList does for
+                // paths with spaces) makes it ignore it and open Documents.
+                var full = Path.GetFullPath(file);
+                if (File.Exists(full))
+                    Process.Start(new ProcessStartInfo("explorer.exe") { Arguments = $"/select,\"{full}\"", UseShellExecute = false });
+                else
+                    Open(Path.GetDirectoryName(full) ?? full);
+            }
             else
                 Open(Path.GetDirectoryName(file) ?? file);
         }

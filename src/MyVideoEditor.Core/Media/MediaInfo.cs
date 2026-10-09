@@ -19,6 +19,11 @@ public sealed record MediaInfo
     public long BitRate { get; init; }
 
     public bool HasVideo { get; init; }
+    /// <summary>
+    /// Where the picture ends, in seconds from the file's start; 0 if unknown. It can be earlier than
+    /// <see cref="Duration"/>, as in many downloaded videos whose sound runs on a little longer.
+    /// </summary>
+    public double VideoEnd { get; init; }
     /// <summary>Display size: after the rotation metadata (phone videos) and sample aspect ratio are applied.</summary>
     public int Width { get; init; }
     public int Height { get; init; }

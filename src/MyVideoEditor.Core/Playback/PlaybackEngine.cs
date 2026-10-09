@@ -42,7 +42,8 @@ public sealed class PlaybackEngine : IDisposable
     /// <summary>Current playback time while playing.</summary>
     public double Position => _session?.Clock() ?? 0;
 
-    public void Play(Project project, double from, int width, int height)
+    /// <summary>Plays from <paramref name="from"/>; <paramref name="speed"/> above 1 fast-forwards (silently above 2×).</summary>
+    public void Play(Project project, double from, int width, int height, double speed = 1)
     {
         Stop();
         var duration = project.Duration;
@@ -50,7 +51,7 @@ public sealed class PlaybackEngine : IDisposable
             from = 0;
         if (duration <= 0)
             return;
-        var session = new Session(this, project, from, width & ~1, height & ~1);
+        var session = new Session(this, project, from, width & ~1, height & ~1, Math.Clamp(speed, 0.25, 16));
         lock (_gate)
             _session = session;
         session.Start();
@@ -162,9 +163,12 @@ public sealed class PlaybackEngine : IDisposable
         private volatile bool _audioDone;
         private volatile bool _videoDone;
 
-        public Session(PlaybackEngine engine, Project project, double from, int width, int height)
+        private readonly double _speed;
+
+        public Session(PlaybackEngine engine, Project project, double from, int width, int height, double speed)
         {
             _engine = engine;
+            _speed = speed;
             _project = ProjectSerializer.Clone(project); // edits during playback don't touch this run
             _from = from;
             _width = width;
@@ -180,8 +184,8 @@ public sealed class PlaybackEngine : IDisposable
         public double Clock()
         {
             if (Audio is { } audio && !_audioDone)
-                return audio.Started ? _from + audio.PlayedSeconds : _from;
-            return _from + Volatile.Read(ref _stopwatchBase) + (_stopwatch.IsRunning ? _stopwatch.Elapsed.TotalSeconds : 0);
+                return audio.Started ? _from + audio.PlayedSeconds * _speed : _from;
+            return _from + (Volatile.Read(ref _stopwatchBase) + (_stopwatch.IsRunning ? _stopwatch.Elapsed.TotalSeconds : 0)) * _speed;
         }
 
         public void Start()
@@ -195,13 +199,15 @@ public sealed class PlaybackEngine : IDisposable
                 Width = _width,
                 Height = _height,
                 Capabilities = _engine._locator.Capabilities,
+                Speed = _speed,
             };
             try
             {
                 var videoPlan = RenderPlanBuilder.Build(_project, options with { IncludeAudio = false });
                 _videoStream = new FfmpegStream(_engine._locator,
                     videoPlan.BuildArguments(["-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"], _engine._locator.Capabilities));
-                if (Audio != null)
+                // Above 2× the sound is more noise than help (and decoding it costs time): fast-forward is silent.
+                if (Audio != null && _speed <= 2)
                 {
                     var audioPlan = RenderPlanBuilder.Build(_project, options with { IncludeVideo = false });
                     _audioStream = new FfmpegStream(_engine._locator,
@@ -234,7 +240,7 @@ public sealed class PlaybackEngine : IDisposable
             {
                 while (!token.IsCancellationRequested)
                 {
-                    var frame = new VideoFrame(_width, _height, _from + index / fps);
+                    var frame = new VideoFrame(_width, _height, _from + index * _speed / fps);
                     if (!_videoStream!.ReadExactly(frame.Pixels.AsSpan(0, frame.Length), token))
                     {
                         frame.Dispose();
@@ -306,7 +312,7 @@ public sealed class PlaybackEngine : IDisposable
 
         private void Present(CancellationToken token, double duration)
         {
-            var frameTime = 1.0 / Math.Max(1, _project.Settings.FrameRate);
+            var frameTime = _speed / Math.Max(1, _project.Settings.FrameRate); // timeline seconds between shown frames
             string? error = null;
             try
             {

@@ -85,6 +85,8 @@ public sealed class MediaReference
     public Media.MediaKind Kind { get; set; }
     public double Duration { get; set; }
     public bool HasVideo { get; set; }
+    /// <summary>Where the picture ends (seconds); 0 if unknown (it can end before the sound).</summary>
+    public double VideoEnd { get; set; }
     public bool HasAudio { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
@@ -97,6 +99,7 @@ public sealed class MediaReference
         Kind = info.Kind,
         Duration = info.Duration,
         HasVideo = info.HasVideo,
+        VideoEnd = info.VideoEnd,
         HasAudio = info.HasAudio,
         Width = info.Width,
         Height = info.Height,

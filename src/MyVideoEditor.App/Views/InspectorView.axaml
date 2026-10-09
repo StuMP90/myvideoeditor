@@ -54,11 +54,24 @@
       <Slider Grid.Column="1" Minimum="0" Maximum="{Binding MaxFade}" Value="{Binding FadeOut}" SmallChange="0.1" />
       <TextBlock Grid.Column="2" Classes="value" Text="{Binding FadeOut, StringFormat='{}{0:0.0} s'}" />
     </Grid>
-    <Grid Classes="row" ColumnDefinitions="90,*,48" ToolTip.Tip="Cross-dissolve from the clip before this one on the same track (they must touch)">
-      <TextBlock Classes="name" Text="Dissolve in" />
+    <Grid Classes="row" ColumnDefinitions="90,*" ToolTip.Tip="How this clip comes in from the clip before it on the same track (they must touch)">
+      <TextBlock Classes="name" Text="Transition" />
+      <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ClipInspectorViewModel.TransitionStyles}" SelectedIndex="{Binding TransitionStyleIndex}"
+                HorizontalAlignment="Stretch" MaxDropDownHeight="400" />
+    </Grid>
+    <Grid Classes="row" ColumnDefinitions="90,*" IsVisible="{Binding TransitionHasDirection}"
+          ToolTip.Tip="Which way the edge moves: Left brings the new clip in from the right">
+      <TextBlock Classes="name" Text="Direction" />
+      <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ClipInspectorViewModel.TransitionDirections}" SelectedIndex="{Binding TransitionDirectionIndex}"
+                HorizontalAlignment="Stretch" />
+    </Grid>
+    <Grid Classes="row" ColumnDefinitions="90,*,48" ToolTip.Tip="How long the transition lasts (0 = a straight cut)">
+      <TextBlock Classes="name" Text="Length" />
       <Slider Grid.Column="1" Minimum="0" Maximum="{Binding MaxFade}" Value="{Binding TransitionIn}" SmallChange="0.1" />
       <TextBlock Grid.Column="2" Classes="value" Text="{Binding TransitionIn, StringFormat='{}{0:0.0} s'}" />
     </Grid>
+    <TextBlock IsVisible="{Binding DissolveHasNoPartner}" TextWrapping="Wrap" FontSize="11" Opacity="0.8" Margin="0,0,0,6"
+               Text="No clip ends where this one starts on its track, so there's nothing to transition from. Right-click the clip → Add transition to join it to the clip before it." />
     <Grid Classes="row" ColumnDefinitions="90,*,48" IsVisible="{Binding IsVisual}">
       <TextBlock Classes="name" Text="Opacity" />
       <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Opacity}" />

@@ -12,6 +12,7 @@ public partial class HelpWindow : Window
         ("Playback", new (string?, string)[]
         {
             ("Space", "Play / pause"),
+            ("J  /  K  /  L", "Rewind / stop / play: press J or L again for 2×, 4×, 8×"),
             ("←  /  →", "Previous / next frame"),
             ("Shift+←  /  Shift+→", "Back / forward one second"),
             ("↑  /  ↓", "Previous / next cut (clip edge)"),
@@ -30,10 +31,10 @@ public partial class HelpWindow : Window
             ("Ctrl+Z  /  Ctrl+Shift+Z or Ctrl+Y", "Undo / redo"),
             ("Ctrl+wheel  /  Ctrl+=  /  Ctrl+−  /  Ctrl+0", "Zoom the timeline in, out, or to fit"),
             ("Wheel  /  Shift+wheel", "Scroll the timeline sideways / up and down"),
-            ("Right-click a clip", "Split, duplicate, dissolve, detach audio, delete"),
+            ("Right-click a clip", "Split, duplicate, add a transition, detach audio, delete"),
             ("M  H  L on a track", "Mute its sound, hide its picture, lock it against changes"),
             (null, "Placing a clip over another trims or splits what's underneath, like most editors. Upper video tracks are drawn in front of lower ones."),
-            (null, "Dissolve: two clips that touch on the same track can cross-fade (\"Dissolve in\" in the clip's settings). It uses footage from before the second clip's start, or after the first clip's end."),
+            (null, "Transitions: two clips that touch on the same track can blend (right-click the second → Add transition, then pick a style in its settings: dissolve, dips, wipes, push, cover, circles, clock, barn doors, zoom, pixelate, blur). They use footage from before the second clip's start, or after the first clip's end; with none to spare, the first clip's last frame is held."),
         }),
         ("Titles, effects and annotations", new (string?, string)[]
         {

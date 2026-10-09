@@ -66,30 +66,83 @@ public static class RenderPlanBuilder
         public double RenderEnd { get; set; }
         /// <summary>Drawn above the other clips on its track (the outgoing clip of a dissolve).</summary>
         public bool OnTop { get; set; }
+        /// <summary>The clip's last frame held still (a dissolve with no footage to spare either side of the cut). Video only.</summary>
+        public bool HoldsLastFrame { get; init; }
+        /// <summary>One side of a styled transition (drawn by it, not on its own); null for ordinary items.</summary>
+        public StyledTransition? Transition { get; init; }
         /// <summary>(start, duration, fade-in?) in seconds since <see cref="RenderStart"/>.</summary>
         public List<(double Start, double Duration, bool In)> VideoFades { get; } = [];
         public List<(double Start, double Duration, bool In)> AudioFades { get; } = [];
     }
 
-    /// <summary>The clips of a track as render items, with dissolves turned into overlaps and fades.</summary>
-    internal static List<Item> Items(Project project, Track track)
+    /// <summary>
+    /// A transition drawn with xfade over [Start, Start + Duration]: the outgoing and incoming clips are
+    /// each rendered over the whole of it (even when only part is shown, as in a preview frame), blended,
+    /// and the part in range laid over the track.
+    /// </summary>
+    internal sealed class StyledTransition
+    {
+        public required double Start { get; init; }
+        public required double Duration { get; init; }
+        public required string Xfade { get; init; }
+        public Item Outgoing { get; set; } = null!;
+        public Item Incoming { get; set; } = null!;
+    }
+
+    /// <summary>
+    /// The clips of a track as render items, with transitions turned into overlaps and fades. With
+    /// <paramref name="styled"/> (video, when ffmpeg has xfade), transitions other than dissolves become
+    /// <see cref="StyledTransition"/>s: the clips either side stop at its edges and two side items cover it.
+    /// Sound always crossfades.
+    /// </summary>
+    internal static List<Item> Items(Project project, Track track, bool styled = false)
     {
         var clips = track.Clips.OrderBy(c => c.Start).ToList();
         var items = clips.Select(c => new Item { Clip = c, Track = track, RenderStart = c.Start, RenderEnd = c.End }).ToList();
+        var holds = new List<Item>();
         for (var i = 1; i < items.Count; i++)
         {
             var a = items[i - 1];
             var b = items[i];
             var d = Math.Min(b.Clip.TransitionIn, Math.Min(a.Clip.Duration, b.Clip.Duration));
-            if (d < Eps || Math.Abs(a.Clip.End - b.Clip.Start) > 0.002)
+            if (d < 0.01 || Math.Abs(a.Clip.End - b.Clip.Start) > 0.002)
                 continue;
             var headB = HeadHandle(project, b.Clip);
             var tailA = TailHandle(project, a.Clip);
-            if (headB < d && tailA < d)
-                d = Math.Max(headB, tailA);
-            if (d < 0.01)
+            var xfade = Transitions.XfadeName(b.Clip.TransitionStyle, b.Clip.TransitionDirection);
+            if (styled && xfade != null && Drawable(a.Clip) && Drawable(b.Clip))
+            {
+                // Before the cut when the incoming clip has footage to spare; otherwise after it, from the
+                // outgoing clip's footage after its end, or its last frame held.
+                var before = headB >= d;
+                if (before)
+                    d = Math.Min(d, a.RenderEnd - a.RenderStart);
+                var start = before ? a.Clip.End - d : a.Clip.End;
+                var transition = new StyledTransition { Start = start, Duration = d, Xfade = xfade };
+                transition.Outgoing = new Item
+                {
+                    Clip = a.Clip, Track = track, RenderStart = start, RenderEnd = start + d, Transition = transition,
+                    HoldsLastFrame = !before && tailA < d,
+                };
+                transition.Incoming = new Item { Clip = b.Clip, Track = track, RenderStart = start, RenderEnd = start + d, Transition = transition };
+                if (before)
+                    a.RenderEnd = start;
+                else
+                    b.RenderStart = start + d;
+                holds.Add(transition.Outgoing);
+                holds.Add(transition.Incoming);
                 continue;
-            if (headB >= d)
+            }
+            if (headB < d && tailA < d)
+            {
+                // No footage to spare either side (two whole clips): hold the outgoing clip's last frame
+                // and dissolve from it, as other editors do. Its sound fades out before the cut instead.
+                var hold = new Item { Clip = a.Clip, Track = track, RenderStart = a.Clip.End, RenderEnd = a.Clip.End + d, OnTop = true, HoldsLastFrame = true };
+                hold.VideoFades.Add((0, d, false));
+                holds.Add(hold);
+                a.AudioFades.Add((a.Clip.End - d - a.RenderStart, d, false));
+            }
+            else if (headB >= d)
             {
                 // The incoming clip starts early and fades in over the outgoing one.
                 b.RenderStart -= d;
@@ -107,7 +160,8 @@ public static class RenderPlanBuilder
             // Sound crossfades over the same overlap.
             b.AudioFades.Add((0, d, true));
         }
-        foreach (var item in items)
+        items.AddRange(holds);
+        foreach (var item in items.Where(i => !i.HoldsLastFrame && i.Transition == null))
         {
             var c = item.Clip;
             var clipOffset = c.Start - item.RenderStart;
@@ -125,6 +179,9 @@ public static class RenderPlanBuilder
         return items;
     }
 
+    /// <summary>Clips a styled transition can draw: footage, titles and drawn annotations (not blur and the like, which process what's below).</summary>
+    private static bool Drawable(Clip clip) => clip is MediaClip or TitleClip || clip is AnnotationClip { IsFilterShape: false };
+
     /// <summary>Seconds of footage available before a clip's in-point (unlimited for stills and graphics).</summary>
     private static double HeadHandle(Project project, Clip clip) => clip switch
     {
@@ -135,7 +192,8 @@ public static class RenderPlanBuilder
     /// <summary>Seconds of footage available after a clip's out-point.</summary>
     private static double TailHandle(Project project, Clip clip) => clip switch
     {
-        MediaClip m when project.FindMedia(m.MediaId) is { Kind: not MediaKind.Image } media => Math.Max(0, media.Duration - m.OutPoint) / m.Speed,
+        MediaClip m when project.FindMedia(m.MediaId) is { Kind: not MediaKind.Image } media =>
+            Math.Max(0, (media.VideoEnd > 0 ? Math.Min(media.VideoEnd, media.Duration) : media.Duration) - m.OutPoint) / m.Speed,
         _ => double.MaxValue,
     };
 
@@ -149,11 +207,20 @@ public static class RenderPlanBuilder
         var current = c.Label("bg");
         c.Graph.Add($"color=c={bg}:s={c.Width}x{c.Height}:r={F(c.Fps)}:d={F(c.Duration)},format=yuv420p,setsar=1[{current}]");
 
+        var styled = c.Options.Capabilities is not { Filters.Count: > 0 } caps || caps.HasFilter("xfade");
         // Bottom track first; within a track, outgoing dissolve clips last (on top).
         foreach (var track in Enumerable.Reverse(c.Project.Tracks).Where(t => t.Kind == TrackKind.Video && !t.Hidden))
         {
-            foreach (var item in Items(c.Project, track).OrderBy(i => i.OnTop).ThenBy(i => i.RenderStart))
+            if (!styled && track.Clips.Any(x => x.TransitionIn > 0 && x.TransitionStyle != TransitionStyle.Dissolve))
+                c.Warn("This ffmpeg has no xfade filter, so transitions are shown as dissolves.");
+            foreach (var item in Items(c.Project, track, styled).OrderBy(i => i.OnTop).ThenBy(i => i.RenderStart))
             {
+                if (item.Transition is { } transition)
+                {
+                    if (item == transition.Outgoing)
+                        current = AddStyledTransition(c, transition, current);
+                    continue;
+                }
                 if (!c.Visible(item, out var span))
                     continue;
                 current = item.Clip switch
@@ -166,28 +233,51 @@ public static class RenderPlanBuilder
             }
         }
         var output = "vout";
-        c.Graph.Add($"[{current}]setsar=1[{output}]");
+        var speed = c.Options.Speed;
+        c.Graph.Add(Math.Abs(speed - 1) < 1e-6
+            ? $"[{current}]setsar=1[{output}]"
+            : $"[{current}]setsar=1,setpts=PTS/{F(speed)},fps={F(c.Fps)}[{output}]");
         return output;
     }
 
     private static string AddMediaVideo(BuildContext c, Item item, MediaClip clip, Span span, string current)
     {
+        if (MediaLayer(c, item, clip, span) is not var (layer, x, y))
+            return current;
+        var next = c.Label("c");
+        c.Graph.Add($"[{current}][{layer}]overlay=x={x}:y={y}:eof_action=pass[{next}]");
+        return next;
+    }
+
+    /// <summary>A clip's picture as a layer (its own size, timed for the output), with where it goes; null if there's none.</summary>
+    private static (string Layer, string X, string Y)? MediaLayer(BuildContext c, Item item, MediaClip clip, Span span)
+    {
         var media = c.Project.FindMedia(clip.MediaId);
         if (media == null || !media.HasVideo)
-            return current;
+            return null;
         if (!File.Exists(media.Path))
         {
             c.Warn($"{media.Name} is missing ({media.Path}); its clips are left out.");
-            return current;
+            return null;
         }
-        var input = c.AddMediaInput(item, clip, media, span);
+        var input = item.HoldsLastFrame ? c.AddLastFrameInput(clip) : c.AddMediaInput(item, clip, media, span);
 
-        var chain = new List<string>
-        {
-            // Clip time: seconds since the clip started rendering.
-            $"setpts=(PTS-STARTPTS)/{F(clip.Speed)}+{F(span.LocalOffset)}/TB",
-            $"fps={F(c.Fps)}",
-        };
+        var chain = item.HoldsLastFrame
+            ? new List<string>
+            {
+                // The last frame of the clip (the end of a short read, reversed), held for the item's length.
+                "reverse,trim=end_frame=1",
+                $"setpts=PTS-STARTPTS+{F(span.LocalOffset)}/TB",
+                $"tpad=stop_mode=clone:stop_duration={F(span.Length)}",
+                $"fps={F(c.Fps)}",
+                $"trim=end={F(span.LocalOffset + span.Length)}",
+            }
+            : new List<string>
+            {
+                // Clip time: seconds since the clip started rendering.
+                $"setpts=(PTS-STARTPTS)/{F(clip.Speed)}+{F(span.LocalOffset)}/TB",
+                $"fps={F(c.Fps)}",
+            };
         var srcW = Math.Max(2, media.Width - clip.CropLeft - clip.CropRight);
         var srcH = Math.Max(2, media.Height - clip.CropTop - clip.CropBottom);
         if (clip.CropLeft + clip.CropRight + clip.CropTop + clip.CropBottom > 0)
@@ -207,27 +297,66 @@ public static class RenderPlanBuilder
 
         var layer = c.Label("v");
         c.Graph.Add($"[{input}:v]{string.Join(',', chain)}[{layer}]");
-        var next = c.Label("c");
         var x = $"(main_w-overlay_w)/2{Signed(clip.OffsetX * c.PixelScale)}";
         var y = $"(main_h-overlay_h)/2{Signed(clip.OffsetY * c.PixelScale)}";
-        c.Graph.Add($"[{current}][{layer}]overlay=x={x}:y={y}:eof_action=pass[{next}]");
-        return next;
+        return (layer, x, y);
     }
 
     private static string AddGraphic(BuildContext c, Item item, Span span, string current)
     {
+        if (GraphicLayer(c, item, span) is not var (layer, x, y))
+            return current;
+        var next = c.Label("c");
+        c.Graph.Add($"[{current}][{layer}]overlay=x={x}:y={y}:eof_action=pass[{next}]");
+        return next;
+    }
+
+    private static (string Layer, string X, string Y)? GraphicLayer(BuildContext c, Item item, Span span)
+    {
         var graphics = c.Options.Graphics ?? GraphicsRenderer.Default;
         var rendered = graphics.Render(item.Clip, c.Width, c.Height, c.Project.Settings.Width, c.Project.Settings.Height);
         if (rendered == null)
-            return current;
+            return null;
         var input = c.AddStillInput(rendered.Path, span.Length);
         var chain = new List<string> { "format=yuva420p", $"setpts=PTS-STARTPTS+{F(span.LocalOffset)}/TB" };
         AddOpacityAndFades(item.Clip, item, chain);
         chain.Add($"setpts=PTS-STARTPTS+{F(span.OutputOffset)}/TB");
         var layer = c.Label("g");
         c.Graph.Add($"[{input}:v]{string.Join(',', chain)}[{layer}]");
+        return (layer, rendered.X.ToString(), rendered.Y.ToString());
+    }
+
+    /// <summary>
+    /// A styled transition: each side drawn over the whole transition onto a transparent full frame
+    /// (so what's below shows through any space around it), blended by xfade, and the part in range
+    /// laid over the track.
+    /// </summary>
+    private static string AddStyledTransition(BuildContext c, StyledTransition t, string current)
+    {
+        var shownStart = Math.Max(t.Start, c.RangeStart);
+        var shownEnd = Math.Min(t.Start + t.Duration, c.RangeEnd);
+        if (shownEnd - shownStart < 1e-4)
+            return current;
+        var whole = new Span(t.Start, t.Duration, 0, 0);
+        string Side(Item item)
+        {
+            var layer = item.Clip is MediaClip m ? MediaLayer(c, item, m, whole) : GraphicLayer(c, item, whole);
+            var canvas = c.Label("t");
+            c.Graph.Add($"color=c=black@0:s={c.Width}x{c.Height}:r={F(c.Fps)}:d={F(t.Duration)},format=yuva420p[{canvas}]");
+            if (layer is not var (l, x, y))
+                return canvas;
+            var side = c.Label("t");
+            c.Graph.Add($"[{canvas}][{l}]overlay=x={x}:y={y}:eof_action=pass:format=auto,format=yuva420p[{side}]");
+            return side;
+        }
+        var from = Side(t.Outgoing);
+        var to = Side(t.Incoming);
+        var blended = c.Label("x");
+        c.Graph.Add($"[{from}][{to}]xfade=transition={t.Xfade}:duration={F(t.Duration)}:offset=0," +
+                    $"trim=start={F(shownStart - t.Start)}:end={F(shownEnd - t.Start)}," +
+                    $"setpts=PTS-STARTPTS+{F(shownStart - c.RangeStart)}/TB[{blended}]");
         var next = c.Label("c");
-        c.Graph.Add($"[{current}][{layer}]overlay=x={rendered.X}:y={rendered.Y}:eof_action=pass[{next}]");
+        c.Graph.Add($"[{current}][{blended}]overlay=x=0:y=0:eof_action=pass[{next}]");
         return next;
     }
 
@@ -366,7 +495,7 @@ public static class RenderPlanBuilder
         {
             foreach (var item in Items(c.Project, track))
             {
-                if (item.Clip is not MediaClip clip || !c.Visible(item, out var span))
+                if (item.Clip is not MediaClip clip || item.HoldsLastFrame || !c.Visible(item, out var span))
                     continue;
                 if (track.Kind == TrackKind.Video && clip.AudioMuted)
                     continue;
@@ -407,14 +536,15 @@ public static class RenderPlanBuilder
         var silence = c.Label("silence");
         c.Graph.Add($"anullsrc=r={c.SampleRate}:cl=stereo,atrim=duration={F(c.Duration)}[{silence}]");
         var output = "aout";
+        var tempo = string.Concat(Atempo(c.Options.Speed).Select(f => "," + f));
         if (layers.Count == 0)
         {
-            c.Graph.Add($"[{silence}]anull[{output}]");
+            c.Graph.Add($"[{silence}]anull{tempo}[{output}]");
         }
         else
         {
             var all = string.Concat(new[] { silence }.Concat(layers).Select(l => $"[{l}]"));
-            c.Graph.Add($"{all}amix=inputs={layers.Count + 1}:duration=first:dropout_transition=0:normalize=0[{output}]");
+            c.Graph.Add($"{all}amix=inputs={layers.Count + 1}:duration=first:dropout_transition=0:normalize=0{tempo}[{output}]");
         }
         return output;
     }
@@ -496,6 +626,24 @@ public static class RenderPlanBuilder
             var sourceStart = clip.InPoint - (clip.Start - item.RenderStart) * clip.Speed + span.LocalOffset * clip.Speed;
             Inputs.AddRange(["-ss", F(Math.Max(0, sourceStart)), "-t", F(span.Length * clip.Speed), "-i", media.Path]);
             _mediaInputs[key] = InputCount;
+            return InputCount++;
+        }
+
+        /// <summary>
+        /// The end of a clip's picture, to take its last frame from: the last half-second before the
+        /// clip's out-point or the picture's end, whichever is first (the last 3 s when the picture's end
+        /// isn't known, as in projects from before it was recorded).
+        /// </summary>
+        public int AddLastFrameInput(MediaClip clip)
+        {
+            var media = Project.FindMedia(clip.MediaId)!;
+            var end = clip.OutPoint;
+            if (media.VideoEnd > 0)
+                end = Math.Min(end, media.VideoEnd);
+            else if (media.Duration > 0)
+                end = Math.Min(end, media.Duration);
+            var window = Math.Min(media.VideoEnd > 0 ? 0.5 : 3, end);
+            Inputs.AddRange(["-ss", F(Math.Max(0, end - window)), "-t", F(window), "-i", media.Path]);
             return InputCount++;
         }
 

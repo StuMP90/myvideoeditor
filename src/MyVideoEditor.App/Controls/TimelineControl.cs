@@ -255,6 +255,11 @@ public sealed class TimelineControl : Control
         return null;
     }
 
+    /// <summary>Where a clip is drawn (control coordinates), or null if it isn't on the timeline.</summary>
+    internal Rect? ClipBounds(string clipId) =>
+        TrackRows().Where(r => r.Track.Clips.Any(c => c.Id == clipId))
+            .Select(r => (Rect?)ClipRect(r.Track.Clips.First(c => c.Id == clipId), r.Row)).FirstOrDefault();
+
     private Rect ClipRect(Clip clip, Rect row) =>
         new(TimeToX(clip.Start), row.Top + 2, Math.Max(2, clip.Duration * _pixelsPerSecond), row.Height - 4);
 
@@ -530,7 +535,8 @@ public sealed class TimelineControl : Control
             Triangle(r.Left, r.Left + clip.FadeIn * _pixelsPerSecond, true);
         if (clip.FadeOut > 0)
             Triangle(r.Right - clip.FadeOut * _pixelsPerSecond, r.Right, false);
-        if (clip.TransitionIn > 0)
+        // Only where it will play: a dissolve needs a clip ending where this one starts on the same track.
+        if (clip.TransitionIn > 0 && _editor?.Session.Editor.DissolvePartner(clip.Id) != null)
         {
             var w = clip.TransitionIn * _pixelsPerSecond;
             var band = new Rect(r.Left, r.Top, w, r.Height);
@@ -757,17 +763,19 @@ public sealed class TimelineControl : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        e.Pointer.Capture(null);
+        // Take the drag before releasing the capture: that raises PointerCaptureLost at once, which
+        // (for a drag cut short) cancels it.
         var drag = _drag;
+        var moved = _dragMoved;
         _drag = DragMode.None;
+        _dragMoved = false;
         _snapLine = null;
-        if (_editor == null || drag == DragMode.Scrub || !_dragMoved || _dragClipId == null)
+        e.Pointer.Capture(null);
+        if (_editor == null || drag == DragMode.Scrub || !moved || _dragClipId == null)
         {
-            _dragMoved = false;
             InvalidateVisual();
             return;
         }
-        _dragMoved = false;
         var editor = _editor.Session.Editor;
         switch (drag)
         {
@@ -799,8 +807,47 @@ public sealed class TimelineControl : Control
         }
     }
 
+    /// <summary>What a track header button does (its tooltip), or null if the point isn't on one.</summary>
+    internal string? HeaderToggleTip(Point p)
+    {
+        if (p.X >= HeaderWidth || p.Y < RulerHeight || TrackAt(p.Y) is not { } row)
+            return null;
+        var x = 10.0;
+        foreach (var (_, on, key) in HeaderToggles(row.Track))
+        {
+            if (new Rect(x, row.Row.Bottom - 24, 24, 18).Contains(p))
+                return key switch
+                {
+                    "mute" => on ? "Muted: this track's sound is left out. Click to unmute." : "Mute: leave this track's sound out",
+                    "hide" => on ? "Hidden: this track's picture is left out. Click to show it." : "Hide: leave this track's picture out",
+                    _ => on ? "Locked: its clips can't be changed. Click to unlock." : "Lock: stop this track's clips being changed",
+                };
+            x += 28;
+        }
+        return null;
+    }
+
+    private string? _tip;
+
+    private void ShowTip(string? tip)
+    {
+        if (tip == _tip)
+            return;
+        _tip = tip;
+        // The buttons are drawn, not controls, so the timeline's own tooltip follows the pointer over them.
+        ToolTip.SetTip(this, tip);
+        ToolTip.SetIsOpen(this, tip != null);
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        ShowTip(null);
+    }
+
     private void UpdateCursor(Point p)
     {
+        ShowTip(HeaderToggleTip(p));
         var hit = ClipAt(p);
         if (hit is { } h && !h.Track.Locked)
         {
@@ -895,7 +942,7 @@ public sealed class TimelineControl : Control
         {
             Item("Split at playhead (S)", () => vm.SplitCommand.Execute(null)),
             Item("Duplicate (Ctrl+D)", () => vm.DuplicateCommand.Execute(null)),
-            Item("Add dissolve from previous clip", () => vm.AddDissolveCommand.Execute(null)),
+            Item("Add transition from previous clip", () => vm.AddDissolveCommand.Execute(null)),
         };
         if (clip is MediaClip)
             items.Add(Item("Detach audio to its own track", () => vm.DetachAudioCommand.Execute(null)));

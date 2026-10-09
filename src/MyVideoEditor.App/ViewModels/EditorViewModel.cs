@@ -32,6 +32,7 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
     private readonly IAudioSink? _audio;
     private readonly DispatcherTimer _playheadTimer;
     private readonly DispatcherTimer _stillTimer;
+    private int _rewind; // > 0 while rewinding: the current rewind's number (a new one ends the old loop)
     private readonly DispatcherTimer _autosaveTimer;
     private readonly HashSet<string> _selection = [];
     private bool _restartPlaybackAfterEdit;
@@ -564,13 +565,11 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
     {
         if (Inspector?.ClipId is not { } id || Project.FindClip(id) is not { } found)
             return;
-        var previous = found.Track.Clips.LastOrDefault(c => c.End <= found.Clip.Start + 0.002);
-        if (previous == null || Math.Abs(previous.End - found.Clip.Start) > 0.002)
-        {
-            Status = "A dissolve joins two clips that touch on the same track: move this clip right up against the one before it.";
-            return;
-        }
-        Session.Editor.UpdateClip(id, "Add dissolve", c => c.TransitionIn = Math.Min(1, c.Duration / 2));
+        var track = found.Track.Id;
+        var why = Session.Editor.AddDissolve(id, Math.Min(1, found.Clip.Duration / 2));
+        Status = why ?? (Project.FindClip(id)?.Track.Id != track
+            ? "Transition added; the clip moved onto the same track as the one before it, so they can blend. Choose its style in the clip's settings."
+            : "Transition added. Choose its style in the clip's settings.");
     }
 
     [RelayCommand]
@@ -642,6 +641,7 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
     /// <summary>Moves the playhead (stopping playback if the user seeks while playing, then resuming from there).</summary>
     public void Seek(double seconds)
     {
+        StopRewind();
         var t = Math.Clamp(Timecode.SnapToFrame(seconds, Project.Settings.FrameRate), 0, Math.Max(0, Project.Duration));
         if (IsPlaying && !_settingFromPlayback)
         {
@@ -652,29 +652,126 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         Playhead = t;
     }
 
+    /// <summary>Plays at normal speed, or pauses normal playback. From fast-forward or rewind it goes back to normal speed.</summary>
     [RelayCommand]
     private void PlayPause()
     {
-        if (IsPlaying)
+        if (IsPlaying && PlaybackSpeed == 1)
+        {
             StopPlayback();
+            return;
+        }
+        StopRewind();
+        PlaybackSpeed = 1;
+        StartPlayback();
+    }
+
+    partial void OnPlaybackSpeedChanged(double value)
+    {
+        // Keep the status line in step with the shuttle (and clear its message once it's back to normal).
+        if (value is > 1 or < 0)
+            Status = value > 1 ? $"Fast-forward {value:0}× (Space: normal speed, K: stop)." : $"Rewinding {-value:0}× (Space: play, K: stop).";
+        else if (Status.StartsWith("Fast-forward", StringComparison.Ordinal) || Status.StartsWith("Rewinding", StringComparison.Ordinal))
+            Status = "";
+    }
+
+    /// <summary>Playback speed: 1 normal, 2/4/8 fast-forward (L), -1/-2/-4/-8 rewind (J); 0 when stopped.</summary>
+    [ObservableProperty]
+    private double _playbackSpeed;
+
+    public bool IsRewinding => _rewind > 0;
+
+    /// <summary>
+    /// J/K/L shuttle, as in other editors: L plays, and each further press doubles the speed (to 8×);
+    /// J rewinds the same way; K stops. Pressing the opposite key while shuttling slows down first.
+    /// </summary>
+    [RelayCommand]
+    private void Shuttle(int direction)
+    {
+        if (direction == 0)
+        {
+            StopPlayback();
+            return;
+        }
+        var current = IsPlaying || IsRewinding ? PlaybackSpeed : 0;
+        double next;
+        if (current == 0 || Math.Sign(current) != direction && Math.Abs(current) <= 1)
+            next = direction; // start (or reverse from 1×)
+        else if (Math.Sign(current) == direction)
+            next = Math.Min(8, Math.Abs(current) * 2) * direction;
         else
+            next = current / 2; // the other way: slow down first
+        if (next < 0)
+        {
+            _playback.Stop();
+            _playheadTimer.Stop();
+            IsPlaying = false;
+            PlaybackSpeed = next;
+            if (!IsRewinding)
+                RewindLoop();
+        }
+        else
+        {
+            StopRewind();
+            PlaybackSpeed = next;
             StartPlayback();
+        }
+    }
+
+    /// <summary>Rewind: there's no playing backwards, so the playhead steps back and frames are shown as fast as they render.</summary>
+    private async void RewindLoop()
+    {
+        var id = ++_rewindCount;
+        _rewind = id;
+        OnPropertyChanged(nameof(IsRewinding));
+        var last = DateTime.UtcNow;
+        while (_rewind == id)
+        {
+            await Task.Delay(40);
+            if (_rewind != id)
+                break;
+            var now = DateTime.UtcNow;
+            var t = Math.Max(0, Playhead + PlaybackSpeed * (now - last).TotalSeconds);
+            last = now;
+            Playhead = t;
+            // Straight away rather than through the short delay (which these steady steps would keep putting off);
+            // requests while a frame renders collapse into one more of the latest time.
+            _stillTimer.Stop();
+            _ = RenderStillAsync();
+            if (t <= 0)
+                StopPlayback();
+        }
+    }
+
+    private int _rewindCount;
+
+    private void StopRewind()
+    {
+        if (_rewind == 0)
+            return;
+        _rewind = 0;
+        OnPropertyChanged(nameof(IsRewinding));
     }
 
     private void StartPlayback()
     {
         if (Project.Duration <= 0)
             return;
+        StopRewind();
         if (Playhead >= Project.Duration - 0.05)
             Playhead = 0;
+        if (PlaybackSpeed <= 0)
+            PlaybackSpeed = 1;
         var (w, h) = PreviewSize;
-        _playback.Play(Project, Playhead, w, h);
+        _playback.Play(Project, Playhead, w, h, PlaybackSpeed);
         IsPlaying = true;
         _playheadTimer.Start();
     }
 
     public void StopPlayback()
     {
+        StopRewind();
+        PlaybackSpeed = 0;
         _playback.Stop();
         _playheadTimer.Stop();
         if (IsPlaying)
@@ -690,6 +787,7 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         if (!IsPlaying)
             return;
         IsPlaying = false;
+        PlaybackSpeed = 0;
         if (error != null)
             Status = "Playback stopped: " + error;
         else if (Playhead >= Project.Duration - 0.2)
@@ -714,17 +812,30 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void GoToStart() => Seek(0);
 
+    /// <summary>Goes to the end (stopping playback: playing on from the end would start again from the beginning).</summary>
     [RelayCommand]
-    private void GoToEnd() => Seek(Project.Duration);
+    private void GoToEnd()
+    {
+        StopPlayback();
+        Seek(Project.Duration);
+    }
 
     /// <summary>Jumps to the previous or next clip edge.</summary>
     [RelayCommand]
     private void JumpToEdge(int direction)
     {
         var points = Session.Editor.SnapPoints().Append(Project.Duration).Distinct().Order().ToList();
+        // While playing, the playhead has just passed the last edge: going back skips it if it's within the last second,
+        // as pressing again would otherwise keep landing on the same cut.
+        var behind = IsPlaying ? 1.0 : 0.001;
         var target = direction < 0
-            ? points.LastOrDefault(p => p < Playhead - 0.001, 0)
+            ? points.LastOrDefault(p => p < Playhead - behind, 0)
             : points.FirstOrDefault(p => p > Playhead + 0.001, Project.Duration);
+        if (direction > 0 && target >= Project.Duration - 0.001)
+        {
+            GoToEnd();
+            return;
+        }
         Seek(target);
     }
 

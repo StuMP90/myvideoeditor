@@ -126,6 +126,8 @@ public sealed class MediaProbe
                 ColorTransfer = Tag(Str(v, "color_transfer")),
                 VideoCodec = Str(v, "codec_name"),
                 PixelFormat = Str(v, "pix_fmt"),
+                VideoEnd = isImage || Num(v, "duration") <= 0 ? 0
+                    : Math.Max(0, Num(v, "start_time") - Num(format, "start_time")) + Num(v, "duration"),
             };
         }
         if (audio is { } a)

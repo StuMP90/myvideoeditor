@@ -292,6 +292,44 @@ public sealed class TimelineEditor
     }
 
     /// <summary>Changes a clip's properties. Durations and fades are kept within sensible limits afterwards.</summary>
+    /// <summary>The clip a dissolve on this one starts from: the one ending where it starts, on the same track; null if none.</summary>
+    public Clip? DissolvePartner(string clipId) =>
+        Project.FindClip(clipId) is var (track, clip)
+            ? track.Clips.FirstOrDefault(c => c != clip && Math.Abs(c.End - clip.Start) <= 0.002)
+            : null;
+
+    /// <summary>
+    /// Adds a dissolve from the clip ending where this one starts. If that clip is on another track (and
+    /// this one's time there is free), this clip moves onto it first, as one undo step. Returns why not, or null.
+    /// </summary>
+    public string? AddDissolve(string clipId, double seconds)
+    {
+        var (track, clip) = Find(clipId);
+        if (track.Locked)
+            return "This track is locked.";
+        Track? target = null;
+        if (DissolvePartner(clipId) == null)
+        {
+            target = Project.Tracks.FirstOrDefault(t => t != track && t.Kind == track.Kind && !t.Locked && CanHold(t, clip)
+                && t.Clips.Any(c => Math.Abs(c.End - clip.Start) <= 0.002)
+                && !t.Clips.Any(c => c.Start < clip.End - 1e-6 && c.End > clip.Start + 1e-6));
+            if (target == null)
+                return "A dissolve joins two clips that touch: move this clip right up against the end of the one before it.";
+        }
+        _session.Apply("Add dissolve", p =>
+        {
+            var (from, c) = p.FindClip(clipId)!.Value;
+            if (target != null)
+            {
+                from.Clips.Remove(c);
+                Place(p.FindTrack(target.Id)!, c);
+            }
+            c.TransitionIn = seconds;
+            Normalise(p, p.FindClip(clipId)!.Value.Track, c);
+        });
+        return null;
+    }
+
     public void UpdateClip(string clipId, string description, Action<Clip> change, string? mergeKey = null)
     {
         _session.Apply(description, p =>

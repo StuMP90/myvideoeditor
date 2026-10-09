@@ -168,6 +168,231 @@ public class UiTests
     }
 
     [AvaloniaFact]
+    public void Dragging_clips_on_the_timeline_moves_and_trims_them()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(4, 320, 240))], addToTimeline: true));
+        var timeline = window.FindDescendantOfType<TimelineControl>()!;
+        // The project's objects are replaced by some edits, so look the clip up afresh each time.
+        Clip Video() => editor.Project.AllClips().First(x => x.Track.Kind == TrackKind.Video).Clip;
+        var id = Video().Id;
+        Point At(double fx)
+        {
+            var r = timeline.ClipBounds(id)!.Value;
+            return timeline.TranslatePoint(new Point(r.Left + r.Width * fx, r.Center.Y), window)!.Value;
+        }
+        void Drag(Point from, double dx)
+        {
+            window.MouseDown(from, MouseButton.Left);
+            window.MouseMove(from + new Point(dx / 2, 0));
+            window.MouseMove(from + new Point(dx, 0));
+            window.MouseUp(from + new Point(dx, 0), MouseButton.Left);
+            Pump();
+        }
+        timeline.PixelsPerSecond = 100; // the whole clip stays in view after moving
+        Pump();
+        var pps = timeline.PixelsPerSecond;
+        editor.SnapEnabled = false;
+
+        // Move: drag the middle one second to the right.
+        Drag(At(0.5), pps);
+        Assert.Equal(1, Video().Start, 2);
+        Assert.Equal(4, Video().Duration, 2);
+
+        // Trim the end: drag the right edge one second to the left.
+        Drag(At(1) - new Point(2, 0), -pps);
+        Assert.Equal(1, Video().Start, 2);
+        Assert.Equal(3, Video().Duration, 2);
+
+        // Both are single undo steps.
+        editor.UndoCommand.Execute(null);
+        editor.UndoCommand.Execute(null);
+        Assert.Equal(0, Video().Start, 2);
+        Assert.Equal(4, Video().Duration, 2);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Adding_a_dissolve_from_the_clip_menu()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.ColorAsync("red", 2, 320, 240)), Media(() => TestMedia.ColorAsync("blue", 2, 320, 240))], addToTimeline: true));
+        var clips = editor.Project.AllClips().Where(x => x.Track.Kind == TrackKind.Video).Select(x => x.Clip).OrderBy(c => c.Start).ToList();
+        var first = editor.Project.FindClip(clips[0].Id)!.Value.Track;
+        // As in a real project: the second clip on another track, starting where the first ends.
+        var other = editor.Project.Tracks.First(t => t.Kind == TrackKind.Video && t != first);
+        editor.Session.Editor.MoveClip(clips[1].Id, 2, other.Id);
+        editor.Select(clips[1].Id);
+        Pump();
+        // Setting a dissolve there has nothing to blend with, and says so.
+        editor.Inspector!.TransitionIn = 1;
+        Assert.True(editor.Inspector.DissolveHasNoPartner);
+        editor.Inspector.TransitionIn = 0;
+
+        // The menu joins it to the clip before it: it moves onto that track and dissolves, in one step.
+        editor.AddDissolveCommand.Execute(null);
+        var (track, clip) = editor.Project.FindClip(clips[1].Id)!.Value;
+        Assert.Equal(first.Id, track.Id);
+        Assert.Equal(2, clip.Start, 3);
+        Assert.Equal(1, clip.TransitionIn, 3);
+        Assert.Contains("moved", editor.Status);
+        editor.Select(clips[1].Id);
+        Pump();
+        Assert.False(editor.Inspector!.DissolveHasNoPartner);
+        // Whole clips have no footage to spare, so the first one's last frame is held: the cut shows a mix.
+        editor.Seek(2.5);
+        Await(editor.FlushPreviewAsync());
+        Assert.True(editor.PreviewIsCurrent);
+        editor.UndoCommand.Execute(null);
+        Assert.Equal(other.Id, editor.Project.FindClip(clips[1].Id)!.Value.Track.Id);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Choosing_a_transition_style_in_the_inspector()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.ColorAsync("red", 2, 320, 240)), Media(() => TestMedia.ColorAsync("blue", 2, 320, 240))], addToTimeline: true));
+        var second = editor.Project.AllClips().Where(x => x.Track.Kind == TrackKind.Video).Select(x => x.Clip).OrderBy(c => c.Start).Last();
+        editor.Select(second.Id);
+        Pump();
+        var inspector = editor.Inspector!;
+        Assert.False(inspector.TransitionHasDirection); // a dissolve has none
+        inspector.TransitionStyleIndex = Transitions.All.ToList().FindIndex(t => t.Style == TransitionStyle.Push);
+        Pump();
+        inspector = editor.Inspector!;
+        var clip = editor.Project.FindClip(second.Id)!.Value.Clip;
+        Assert.Equal(TransitionStyle.Push, clip.TransitionStyle);
+        Assert.Equal(1, clip.TransitionIn, 3); // a style on a cut gets a length, so it shows
+        Assert.True(inspector.TransitionHasDirection);
+        inspector.TransitionDirectionIndex = 2;
+        Assert.Equal(TransitionDirection.Up, editor.Project.FindClip(second.Id)!.Value.Clip.TransitionDirection);
+        editor.Seek(2.5);
+        Await(editor.FlushPreviewAsync());
+        Assert.True(editor.PreviewIsCurrent);
+        Assert.DoesNotContain("failed", editor.Status);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Transport_buttons_work_during_playback()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(3, 320, 240)), Media(() => TestMedia.PatternAsync(3, 320, 240))], addToTimeline: true));
+        editor.PlayPauseCommand.Execute(null);
+        WaitFor(() => editor.Playhead > 0.3);
+
+        // Next cut: carries on playing from the cut.
+        editor.JumpToEdgeCommand.Execute(1);
+        Assert.True(editor.IsPlaying);
+        WaitFor(() => editor.Playhead > 3.2);
+        // Previous cut, just after passing one: goes to the one before, not back to the cut just passed.
+        editor.JumpToEdgeCommand.Execute(-1);
+        Assert.True(editor.IsPlaying);
+        Assert.True(editor.Playhead < 0.5, $"at {editor.Playhead}");
+        WaitFor(() => editor.Playhead > 0.6);
+        // End: stops there (rather than starting again from the beginning).
+        editor.GoToEndCommand.Execute(null);
+        Pump(300);
+        Assert.False(editor.IsPlaying);
+        Assert.Equal(6, editor.Playhead, 1);
+        // Stepping a frame pauses, as in other editors.
+        editor.PlayPauseCommand.Execute(null);
+        WaitFor(() => editor.Playhead is > 0.3 and < 5);
+        editor.StepFramesCommand.Execute(1);
+        Assert.False(editor.IsPlaying);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void J_K_L_shuttle_through_the_timeline()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(6, 320, 240))], addToTimeline: true));
+        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.None);
+        Assert.True(editor.IsPlaying);
+        Assert.Equal(1, editor.PlaybackSpeed);
+        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.None);
+        Assert.Equal(4, editor.PlaybackSpeed);
+        WaitFor(() => editor.Playhead > 3);
+        // J while fast-forwarding slows down first.
+        window.KeyPressQwerty(PhysicalKey.J, RawInputModifiers.None);
+        Assert.Equal(2, editor.PlaybackSpeed);
+        window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.None);
+        Assert.False(editor.IsPlaying);
+        var at = editor.Playhead;
+
+        // J from a stop rewinds, showing frames as it goes.
+        window.KeyPressQwerty(PhysicalKey.J, RawInputModifiers.None);
+        Assert.True(editor.IsRewinding);
+        Assert.Equal(-1, editor.PlaybackSpeed);
+        Pump(300);
+        WaitFor(() => editor.Playhead < at - 0.5);
+        window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.None);
+        Assert.False(editor.IsRewinding);
+        var stoppedAt = editor.Playhead;
+        Pump(200);
+        Assert.Equal(stoppedAt, editor.Playhead);
+        Await(editor.FlushPreviewAsync());
+        Assert.True(editor.PreviewIsCurrent);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Space_plays_at_normal_speed_whatever_has_the_focus()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(6, 320, 240))], addToTimeline: true));
+        // Clicking play gives it the focus; buttons also click on Space, which would undo the shortcut straight away.
+        var play = window.GetVisualDescendants().OfType<Button>().First(b => b.Command == editor.PlayPauseCommand);
+        play.Focus();
+        Assert.True(play.IsFocused, "play has the focus");
+        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.None);
+        Assert.False(editor.IsPlaying);
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Pump(200);
+        Assert.True(editor.IsPlaying);
+        // From fast-forward or rewind, Space goes back to normal speed (rather than stopping).
+        window.KeyPressQwerty(PhysicalKey.L, RawInputModifiers.None);
+        Assert.Equal(2, editor.PlaybackSpeed);
+        Assert.StartsWith("Fast-forward 2", editor.Status);
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Assert.True(editor.IsPlaying);
+        Assert.Equal(1, editor.PlaybackSpeed);
+        Assert.DoesNotContain("Fast-forward", editor.Status);
+        window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.J, RawInputModifiers.None);
+        Assert.True(editor.IsRewinding);
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Assert.False(editor.IsRewinding);
+        Assert.True(editor.IsPlaying);
+        window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+        Pump(200);
+        Assert.False(editor.IsPlaying);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Track_buttons_explain_themselves()
+    {
+        var (window, vm) = Open();
+        var timeline = window.FindDescendantOfType<TimelineControl>()!;
+        // The first track's buttons sit at the bottom left of its header: M at x 10–34.
+        var tip = Enumerable.Range(30, 120).Select(y => timeline.HeaderToggleTip(new Point(20, y))).FirstOrDefault(t => t != null);
+        Assert.StartsWith("Mute", tip);
+        Assert.Null(timeline.HeaderToggleTip(new Point(300, 60)));
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
     public void Keyboard_shortcuts_play_step_and_delete()
     {
         var (window, vm) = Open();

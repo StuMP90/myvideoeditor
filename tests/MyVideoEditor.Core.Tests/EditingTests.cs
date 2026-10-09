@@ -218,4 +218,25 @@ public class EditingTests
         Assert.InRange(x, 0, 1920 - w);
         Assert.InRange(y, 0, 1080 - h);
     }
+
+    [Fact]
+    public void Dissolves_join_clips_that_touch_on_another_track_only_if_there_is_room()
+    {
+        var session = new EditSession(Project.CreateDefault("p", new ProjectSettings { Width = 320, Height = 240, FrameRate = 30 }));
+        var media = session.Editor.ImportMedia(new MediaInfo { Path = "/x.mp4", Kind = MediaKind.Video, Duration = 10, HasVideo = true, Width = 320, Height = 240, FrameRate = 30 });
+        var v1 = session.Project.Tracks.First(t => t.Name == "V1").Id;
+        var v2 = session.Project.Tracks.First(t => t.Name == "V2").Id;
+        var a = session.Editor.AddMediaClip(media, 0, v1);
+        session.Editor.TrimEnd(a, 2);
+        var blocker = session.Editor.AddMediaClip(media, 3, v1);
+        var b = session.Editor.AddMediaClip(media, 2, v2);
+        session.Editor.TrimEnd(b, 4);
+        // V1 is taken from 3 s, inside the second clip's 2–4 s: it can't move there without overwriting.
+        Assert.NotNull(session.Editor.AddDissolve(b, 1));
+        Assert.Equal(v2, session.Project.FindClip(b)!.Value.Track.Id);
+        session.Editor.Delete([blocker]);
+        Assert.Null(session.Editor.AddDissolve(b, 1));
+        Assert.Equal(v1, session.Project.FindClip(b)!.Value.Track.Id);
+        Assert.Equal(a, session.Editor.DissolvePartner(b)!.Id);
+    }
 }

@@ -22,6 +22,18 @@ public static class TestMedia
     }
 
     /// <summary>A solid-colour video with a 440 Hz tone (or silent), e.g. Color("red", 2).</summary>
+    /// <summary>
+    /// A colour clip whose sound runs <paramref name="soundLonger"/> seconds past its picture, as in
+    /// many downloaded videos (the file's duration is the sound's).
+    /// </summary>
+    public static Task<string> ColorWithLongerSoundAsync(string color, double seconds, double soundLonger) =>
+        CachedAsync($"color-{color}-{seconds}-longer-sound-{soundLonger}.mp4", path =>
+        [
+            "-f", "lavfi", "-i", $"color=c={color}:s=320x240:r=30:d={seconds}",
+            "-f", "lavfi", "-i", $"sine=frequency=440:sample_rate=48000:duration={(seconds + soundLonger).ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            .. VideoCodec(), "-c:a", "aac", "-b:a", "128k", "-y", path,
+        ]);
+
     public static Task<string> ColorAsync(string color, double seconds, int width = 320, int height = 240, bool audio = true, int toneHz = 440) =>
         CachedAsync($"color-{color}-{seconds}-{width}x{height}-{audio}-{toneHz}.mp4", path =>
         {

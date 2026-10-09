@@ -28,7 +28,9 @@ Both include FFmpeg, so there's nothing else to install.
   together, detach a video's sound to its own track. Clips snap to clip edges and the playhead.
   Placing a clip over another trims or splits what's underneath, like most editors. Everything is
   undoable.
-- **Clips**: fade in/out, cross-dissolves between touching clips, opacity, volume (to 400%),
+- **Clips**: fade in/out, transitions between touching clips (dissolve, dip to black or white,
+  wipe, soft wipe, push and cover in four directions, circle open/close, clock wipe, barn doors,
+  zoom, pixelate, blur; sound always crossfades), opacity, volume (to 400%),
   speed (0.1×–16×, pitch kept), fit / fill / stretch / original size, scale, position, rotation
   and cropping. Drag a video in the preview to reposition it.
 - **Titles**: title, title card, lower third, caption, chapter and end-card styles; any installed
@@ -287,6 +289,7 @@ The same list is in the app: **Help**, or **F1**.
 | Keys | Action |
 |---|---|
 | Space | Play / pause |
+| J / K / L | Rewind / stop / play; press J or L again for 2×, 4×, 8× (silent above 2×; rewind shows frames as fast as they render) |
 | ← / → | Previous / next frame |
 | Shift+← / Shift+→ | Back / forward one second |
 | ↑ / ↓ | Previous / next cut |
@@ -317,7 +320,9 @@ ask for one. Recordings happen only when you start them. See the [privacy policy
   native WASAPI loopback is on the roadmap. Window capture on Windows finds the window by its title
   when recording starts.
 - No keyframe animation yet: position, scale and zoom are fixed for a clip's length (with fades).
-  Dissolves are the only transition.
+- Transitions other than dissolves use ffmpeg's xfade filter, rendering both clips across the whole
+  transition (even for a preview frame in the middle of one). Blur, pixelate and zoom annotations
+  can't take part in one; they dissolve instead.
 - The preview renders at up to 720p; very complex projects may drop preview frames (export is
   unaffected). Editing a title or annotation re-renders the preview when the mouse is released.
 - Encoding is software only (x264/x265/SVT-AV1); hardware encoders aren't used yet.

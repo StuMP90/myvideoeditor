@@ -116,6 +116,42 @@ public sealed partial class ClipInspectorViewModel : ObservableObject
         set => Set("Dissolve", c => c.TransitionIn = value, "transition");
     }
 
+    public static IReadOnlyList<string> TransitionStyles { get; } = Transitions.All.Select(t => t.Label).ToList();
+    public static IReadOnlyList<string> TransitionDirections { get; } = ["Left", "Right", "Up", "Down"];
+
+    public int TransitionStyleIndex
+    {
+        get => Math.Max(0, Transitions.All.ToList().FindIndex(t => t.Style == (Clip?.TransitionStyle ?? TransitionStyle.Dissolve)));
+        set
+        {
+            if (value < 0 || value >= Transitions.All.Count)
+                return;
+            var style = Transitions.All[value].Style;
+            // Choosing a style on a cut gives it a length, so the choice shows.
+            Set("Transition", c =>
+            {
+                c.TransitionStyle = style;
+                if (c.TransitionIn <= 0)
+                    c.TransitionIn = Math.Min(1, c.Duration / 2);
+            });
+        }
+    }
+
+    public int TransitionDirectionIndex
+    {
+        get => (int)(Clip?.TransitionDirection ?? TransitionDirection.Left);
+        set
+        {
+            if (value is >= 0 and <= 3)
+                Set("Transition direction", c => c.TransitionDirection = (TransitionDirection)value);
+        }
+    }
+
+    public bool TransitionHasDirection => Transitions.HasDirection(Clip?.TransitionStyle ?? TransitionStyle.Dissolve);
+
+    /// <summary>Shown when a dissolve is set but there's no clip for it to start from (so it has no effect).</summary>
+    public bool DissolveHasNoPartner => TransitionIn > 0 && _session.Editor.DissolvePartner(ClipId) == null;
+
     public double MaxFade => Math.Max(0.1, Math.Min(10, (Clip?.Duration ?? 1)));
 
     public double Opacity

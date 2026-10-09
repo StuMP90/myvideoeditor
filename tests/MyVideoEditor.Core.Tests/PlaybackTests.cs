@@ -81,6 +81,34 @@ public class PlaybackTests
         Assert.False(engine.IsPlaying);
     }
 
+    [Theory]
+    [InlineData(2)] // with sound, sped up
+    [InlineData(4)] // silent
+    public async Task Fast_forward_plays_the_timeline_faster(double speed)
+    {
+        var project = await ProjectWithPattern(4);
+        var sink = new FakeAudioSink();
+        using var engine = new PlaybackEngine(sink);
+        var frames = new List<double>();
+        var stopped = new TaskCompletionSource<string?>();
+        engine.FrameReady += f =>
+        {
+            lock (frames)
+                frames.Add(f.Time);
+            f.Dispose();
+        };
+        engine.Stopped += e => stopped.TrySetResult(e);
+
+        var watch = Stopwatch.StartNew();
+        engine.Play(project, 0, 160, 120, speed);
+        Assert.Same(stopped.Task, await Task.WhenAny(stopped.Task, Task.Delay(10_000)));
+        Assert.Null(await stopped.Task);
+        // 4 s of timeline in 4/speed seconds (plus start-up).
+        Assert.InRange(watch.Elapsed.TotalSeconds, 4 / speed * 0.8, 4 / speed + 2);
+        Assert.True(frames[^1] > 3.5, $"reached {frames[^1]}");
+        Assert.Equal(speed <= 2, sink.TotalWritten > 0);
+    }
+
     [Fact]
     public async Task Stop_ends_playback_promptly()
     {

@@ -15,7 +15,25 @@ public partial class MainWindow : Window
         InitializeComponent();
         // Tunnel, so editing shortcuts work wherever focus is (except in text boxes).
         AddHandler(KeyDownEvent, OnShortcutKeyDown, RoutingStrategies.Tunnel);
+        // A key used as a shortcut does nothing else: no typed letter (drop-downs and lists jump to items
+        // starting with it) and no Space release (a focused button would click, undoing play/pause).
+        AddHandler(TextInputEvent, (_, e) =>
+        {
+            if (_shortcutKeyDown)
+                e.Handled = true;
+        }, RoutingStrategies.Tunnel);
+        AddHandler(KeyUpEvent, (_, e) =>
+        {
+            if (_shortcutKeyDown)
+            {
+                e.Handled = true;
+                _shortcutKeyDown = false;
+            }
+        }, RoutingStrategies.Tunnel);
     }
+
+    /// <summary>The last key pressed was taken as a shortcut (until it's released).</summary>
+    private bool _shortcutKeyDown;
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
@@ -65,6 +83,7 @@ public partial class MainWindow : Window
         if (vm.SelectedTab != 0)
             return;
         var editor = vm.Editor;
+        _shortcutKeyDown = false;
         var ctrl = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
         var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         var focused = FocusManager?.GetFocusedElement();
@@ -103,6 +122,9 @@ public partial class MainWindow : Window
         Action? plain = e.Key switch
         {
             Key.Space => () => editor.PlayPauseCommand.Execute(null),
+            Key.J => () => editor.ShuttleCommand.Execute(-1),
+            Key.K => () => editor.ShuttleCommand.Execute(0),
+            Key.L => () => editor.ShuttleCommand.Execute(1),
             Key.Left when shift => () => editor.StepSecondsCommand.Execute(-1.0),
             Key.Right when shift => () => editor.StepSecondsCommand.Execute(1.0),
             Key.Left => () => editor.StepFramesCommand.Execute(-1),
@@ -128,6 +150,7 @@ public partial class MainWindow : Window
         {
             plain();
             e.Handled = true;
+            _shortcutKeyDown = true;
         }
     }
 

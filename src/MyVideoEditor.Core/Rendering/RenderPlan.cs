@@ -22,6 +22,11 @@ public sealed record RenderOptions
     public FfmpegCapabilities? Capabilities { get; init; }
     /// <summary>ffmpeg scaler for resizing footage: "bicubic" is quick (preview), "lanczos" is sharper (export, upscaling).</summary>
     public string ScaleFlags { get; init; } = "bicubic";
+    /// <summary>
+    /// Plays the range this many times faster (preview fast-forward): the picture keeps its frame
+    /// rate by dropping frames, and the sound is sped up without changing its pitch.
+    /// </summary>
+    public double Speed { get; init; } = 1;
 }
 
 /// <summary>

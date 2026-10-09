@@ -20,8 +20,12 @@ public abstract class Clip
     /// <summary>Fade to transparent and silence at the end, seconds.</summary>
     public double FadeOut { get; set; }
     public double Opacity { get; set; } = 1.0;
-    /// <summary>Cross-dissolve from the clip before it on the same track (seconds; 0 = a cut).</summary>
+    /// <summary>Transition from the clip before it on the same track (seconds; 0 = a cut).</summary>
     public double TransitionIn { get; set; }
+    /// <summary>How that transition looks.</summary>
+    public TransitionStyle TransitionStyle { get; set; }
+    /// <summary>Which way it moves (wipes, pushes and covers).</summary>
+    public TransitionDirection TransitionDirection { get; set; }
     public List<Effect> Effects { get; set; } = [];
 
     [JsonIgnore]
@@ -189,4 +193,80 @@ public sealed class Effect
     public Dictionary<string, double> Parameters { get; set; } = [];
 
     public double Get(string name, double fallback) => Parameters.TryGetValue(name, out var v) ? v : fallback;
+}
+
+/// <summary>Transitions between two clips that touch on a track. All but Dissolve use ffmpeg's xfade filter.</summary>
+public enum TransitionStyle
+{
+    Dissolve,
+    DipToBlack,
+    DipToWhite,
+    Wipe,
+    SoftWipe,
+    Push,
+    Cover,
+    CircleOpen,
+    CircleClose,
+    Clock,
+    BarnDoors,
+    Zoom,
+    Pixelate,
+    Blur,
+}
+
+/// <summary>The way a wipe, push or cover moves: the incoming clip comes from the opposite side.</summary>
+public enum TransitionDirection
+{
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+public static class Transitions
+{
+    /// <summary>Names for the UI, in menu order.</summary>
+    public static IReadOnlyList<(TransitionStyle Style, string Label)> All { get; } =
+    [
+        (TransitionStyle.Dissolve, "Dissolve"),
+        (TransitionStyle.DipToBlack, "Dip to black"),
+        (TransitionStyle.DipToWhite, "Dip to white"),
+        (TransitionStyle.Wipe, "Wipe"),
+        (TransitionStyle.SoftWipe, "Soft wipe"),
+        (TransitionStyle.Push, "Push"),
+        (TransitionStyle.Cover, "Cover"),
+        (TransitionStyle.CircleOpen, "Circle open"),
+        (TransitionStyle.CircleClose, "Circle close"),
+        (TransitionStyle.Clock, "Clock wipe"),
+        (TransitionStyle.BarnDoors, "Barn doors"),
+        (TransitionStyle.Zoom, "Zoom"),
+        (TransitionStyle.Pixelate, "Pixelate"),
+        (TransitionStyle.Blur, "Blur"),
+    ];
+
+    public static bool HasDirection(TransitionStyle style) =>
+        style is TransitionStyle.Wipe or TransitionStyle.SoftWipe or TransitionStyle.Push or TransitionStyle.Cover;
+
+    /// <summary>The xfade transition name; null for a dissolve (drawn with fades, no xfade needed).</summary>
+    public static string? XfadeName(TransitionStyle style, TransitionDirection direction)
+    {
+        var dir = direction.ToString().ToLowerInvariant();
+        return style switch
+        {
+            TransitionStyle.DipToBlack => "fadeblack",
+            TransitionStyle.DipToWhite => "fadewhite",
+            TransitionStyle.Wipe => "wipe" + dir,
+            TransitionStyle.SoftWipe => "smooth" + dir,
+            TransitionStyle.Push => "slide" + dir,
+            TransitionStyle.Cover => "cover" + dir,
+            TransitionStyle.CircleOpen => "circleopen",
+            TransitionStyle.CircleClose => "circleclose",
+            TransitionStyle.Clock => "radial",
+            TransitionStyle.BarnDoors => "vertopen",
+            TransitionStyle.Zoom => "zoomin",
+            TransitionStyle.Pixelate => "pixelize",
+            TransitionStyle.Blur => "hblur",
+            _ => null,
+        };
+    }
 }
