@@ -64,6 +64,38 @@ jobs:
           path: TestResults
           retention-days: 14
 
+  # Windows-only code: window listing, ONNX Runtime with DirectML (GitHub's runners have Microsoft's
+  # software DirectX 12 adapter, so DirectML runs; the app falls back to the CPU if it can't).
+  # Not yet required for releases: it's new, so failures show here without blocking a release.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Fetch FFmpeg
+        shell: pwsh
+        run: |
+          $ProgressPreference = "SilentlyContinue"
+          $name = "ffmpeg-n8.1-latest-win64-gpl-shared-8.1"
+          Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$name.zip" -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+          Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP"
+          "MYVIDEOEDITOR_FFMPEG_DIR=$env:RUNNER_TEMP\$name\bin" >> $env:GITHUB_ENV
+          "MYVIDEOEDITOR_TOOLS_DIR=$env:RUNNER_TEMP\upscalers" >> $env:GITHUB_ENV
+      - name: Run tests
+        run: dotnet test --configuration Release --logger "trx;LogFilePrefix=results" --results-directory TestResults
+      - name: Report failed tests
+        if: failure()
+        run: python .github/scripts/test-report.py TestResults
+      - name: Keep test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-windows
+          path: TestResults
+          retention-days: 14
+
   linux:
     needs: [version, test]
     runs-on: ubuntu-24.04

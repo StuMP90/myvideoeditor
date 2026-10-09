@@ -58,8 +58,11 @@ public sealed class FfmpegRunner
     /// instead of abandoning it (used to end a screen recording).
     /// </summary>
     public async Task RunAsync(IReadOnlyList<string> args, TimeSpan? total = null, IProgress<FfmpegProgress>? progress = null,
-        CancellationToken cancellationToken = default, bool stopGracefully = false, string? workingDirectory = null)
+        CancellationToken cancellationToken = default, bool stopGracefully = false, string? workingDirectory = null,
+        Conversion.ResourceLimits? limits = null)
     {
+        if (limits != null)
+            args = limits.ApplyToFfmpeg(args);
         var psi = new ProcessStartInfo(_locator.FfmpegPath)
         {
             RedirectStandardInput = true,
@@ -89,6 +92,7 @@ public sealed class FfmpegRunner
         {
             throw new FfmpegException($"Couldn't start ffmpeg ({_locator.FfmpegPath}): {ex.Message}", -1, ex.Message);
         }
+        limits?.Apply(process);
 
         var tail = new Queue<string>();
         var stderrTask = Task.Run(async () =>

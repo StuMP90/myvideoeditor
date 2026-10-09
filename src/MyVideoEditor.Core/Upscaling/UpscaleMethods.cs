@@ -9,6 +9,8 @@ public enum UpscaleKind
     Cpu,
     /// <summary>A libplacebo shader on a Vulkan GPU (integrated graphics are fine): close to real time.</summary>
     GpuShader,
+    /// <summary>A neural network run in-process by ONNX Runtime: on the CPU anywhere, or a graphics card through DirectML on Windows.</summary>
+    Onnx,
     /// <summary>An AI model run frame by frame on a Vulkan GPU: slow, best on a dedicated graphics card.</summary>
     AiFrames,
 }
@@ -29,7 +31,9 @@ public sealed record UpscaleMethod(
     UpscaleKind Kind,
     UpscalerComponent? Component,
     ContentType? BestFor,
-    int Quality)
+    int Quality,
+    OnnxModel? OnnxModel = null,
+    bool IsAi = false)
 {
     /// <summary>Whether this computer can run it at all (GPU, platform, ffmpeg features).</summary>
     public string? Unavailable
@@ -38,6 +42,8 @@ public sealed record UpscaleMethod(
         {
             if (Kind == UpscaleKind.Cpu)
                 return null;
+            if (Kind == UpscaleKind.Onnx)
+                return OnnxModel!.IsPresent ? null : $"The {OnnxModel.File} model is missing from this installation.";
             if (Component is { IsSupportedHere: false })
                 return $"Not available for {UpscalerComponents.RuntimeId}.";
             if (VulkanDevices.Best == null)
@@ -61,21 +67,27 @@ public static class UpscaleMethods
         new(ScaleAlgorithm.Bicubic, "Bicubic", "Softer resizing, fewer halos around edges.", UpscaleKind.Cpu, null, null, 1),
         new(ScaleAlgorithm.Spline, "Spline", "Between bicubic and Lanczos.", UpscaleKind.Cpu, null, null, 1),
         new(ScaleAlgorithm.Enhanced, "Enhanced", "Lanczos with light noise reduction and sharpening. Fast on any computer.", UpscaleKind.Cpu, null, null, 3),
-        new(ScaleAlgorithm.GpuDetail, "Sharper detail (GPU)",
-            "FSRCNNX, a small neural network run as a GPU shader: crisper edges than Lanczos at close to real-time speed, even on integrated graphics. Best for camera footage.",
-            UpscaleKind.GpuShader, UpscalerComponents.Fsrcnnx, ContentType.Camera, 4),
+        new(ScaleAlgorithm.ArtCnn, "Sharper detail (ArtCNN)",
+            "ArtCNN, a small neural network trained to recreate real detail rather than invent it: crisper than Lanczos and just as faithful. " +
+            "Fast on any computer's CPU (on Windows it can use the graphics card). Good for any footage.",
+            UpscaleKind.Onnx, null, null, 5, OnnxModel.ArtCnn),
         new(ScaleAlgorithm.GpuLines, "Cleaner lines (GPU)",
             "Anime4K GPU shaders: restores and sharpens lines at close to real-time speed. Best for animation, cartoons and screen recordings.",
             UpscaleKind.GpuShader, UpscalerComponents.Anime4K, ContentType.Animation, 4),
         new(ScaleAlgorithm.AiAnimation, "AI: animation and screen (Real-ESRGAN)",
-            "Real-ESRGAN's video model: clean, sharp lines and flat colours. Best for animation, cartoons and screen recordings. Slow; much faster on a dedicated graphics card.",
-            UpscaleKind.AiFrames, UpscalerComponents.RealEsrgan, ContentType.Animation, 6),
+            "Real-ESRGAN's video model: clean, sharp lines and flat colours. Best for animation, cartoons and screen recordings. " +
+            "Runs on the CPU (about a second per frame), or a graphics card on Windows.",
+            UpscaleKind.Onnx, null, ContentType.Animation, 6, OnnxModel.RealEsrganAnimation, IsAi: true),
+        new(ScaleAlgorithm.AiGeneral, "AI: realistic detail (Real-ESRGAN general)",
+            "Real-ESRGAN's compact general model: adds crisp, realistic detail to camera footage. Invents some texture; " +
+            "lower the AI strength to keep more of the real picture. Runs on the CPU (a few seconds per frame), or a graphics card on Windows.",
+            UpscaleKind.Onnx, null, ContentType.Camera, 6, OnnxModel.RealEsrganGeneral, IsAi: true),
         new(ScaleAlgorithm.AiAnime, "AI: anime, strongest (Real-CUGAN)",
             "Real-CUGAN: the strongest clean-up for anime. Smooths camera footage into a painted look, so use it for animation only. Very slow without a dedicated graphics card.",
-            UpscaleKind.AiFrames, UpscalerComponents.RealCugan, ContentType.Animation, 7),
+            UpscaleKind.AiFrames, UpscalerComponents.RealCugan, ContentType.Animation, 7, IsAi: true),
         new(ScaleAlgorithm.AiPhoto, "AI: photo detail (Real-ESRGAN)",
             "Real-ESRGAN x4plus: invents realistic texture for camera footage. Very slow: practical only on a dedicated (gaming) graphics card.",
-            UpscaleKind.AiFrames, UpscalerComponents.RealEsrgan, ContentType.Camera, 6),
+            UpscaleKind.AiFrames, UpscalerComponents.RealEsrgan, ContentType.Camera, 7, IsAi: true),
     ];
 
     public static UpscaleMethod Get(ScaleAlgorithm algorithm) => All.First(m => m.Algorithm == algorithm);
@@ -89,7 +101,7 @@ public static class UpscaleMethods
     {
         bool FastEnough(UpscaleMethod m) => estimates.TryGetValue(m.Algorithm, out var e)
             ? e.Error == null && e.Total <= timeLimit
-            : m.Kind != UpscaleKind.AiFrames;
+            : !m.IsAi;
         return All.Where(m => m.Unavailable == null && (m.BestFor == null || m.BestFor == content) && FastEnough(m))
             .OrderByDescending(m => m.Quality)
             .First();

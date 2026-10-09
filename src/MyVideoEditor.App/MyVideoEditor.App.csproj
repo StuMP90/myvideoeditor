@@ -28,6 +28,23 @@
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
   </ItemGroup>
 
+  <!--
+    DirectML.dll for ONNX Runtime's DirectML build (Windows builds; see MyVideoEditor.Core.csproj).
+    The Microsoft.AI.DirectML package only copies it into C++ projects, so it's copied here for the
+    architecture being built (or this computer's, for a plain "dotnet run").
+  -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(UseDirectML)' == 'true'">
+    <DirectMLArch Condition="'$(RuntimeIdentifier)' == 'win-x64'">x64-win</DirectMLArch>
+    <DirectMLArch Condition="'$(RuntimeIdentifier)' == 'win-arm64'">arm64-win</DirectMLArch>
+    <DirectMLArch Condition="'$(RuntimeIdentifier)' == 'win-x86'">x86-win</DirectMLArch>
+    <DirectMLArch Condition="'$(DirectMLArch)' == '' and '$(RuntimeIdentifier)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">arm64-win</DirectMLArch>
+    <DirectMLArch Condition="'$(DirectMLArch)' == '' and '$(RuntimeIdentifier)' == ''">x64-win</DirectMLArch>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(DirectMLArch)' != ''">
+    <None Include="$(NuGetPackageRoot)microsoft.ai.directml/1.15.4/bin/$(DirectMLArch)/DirectML.dll"
+          Link="DirectML.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\MyVideoEditor.Core\MyVideoEditor.Core.csproj" />
   </ItemGroup>

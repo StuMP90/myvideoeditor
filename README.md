@@ -61,43 +61,74 @@ conversion.
 
 ### Upscaling for every kind of PC
 
-All methods are free and run on your own computer; nothing is sent anywhere. They're grouped by
-what they need, and **Test speed on this PC** times each one on a few frames of your own video,
-estimates the whole job, and recommends the best that finishes within an hour for the kind of
-video (camera footage, or animation and screen recordings).
+All methods are free and run on your own computer; nothing is sent anywhere. **Test speed on this
+PC** times each one on a few frames of your own video, estimates the whole job, and recommends the
+best that finishes within an hour for the kind of video (camera footage, or animation and screen
+recordings). **Preview frame** shows one frame before and after; **Compare all methods** shows that
+frame through every method this computer can run, side by side in a full window, with a shared
+zoom (to 400%) and pan. Dragging the frame slider shows the original frame straight away, to find
+the moment worth checking.
 
-| Method | Runs on | Best for | 360p→720p on an Intel Iris Xe laptop |
+| Method | Runs on | Best for | 360p→720p on an Intel laptop (Iris Xe, 20 threads) |
 |---|---|---|---|
 | Lanczos, bicubic, spline, Enhanced | CPU | anything; fast | ~30 ms per frame |
-| **Sharper detail** (FSRCNNX shader via libplacebo) | any Vulkan GPU, integrated is fine | camera footage | ~0.1 s per frame |
+| **Sharper detail** (ArtCNN C4F32, ONNX) | CPU anywhere; graphics card on Windows (DirectML) | anything | ~0.1–0.2 s per frame |
 | **Cleaner lines** (Anime4K shaders via libplacebo) | any Vulkan GPU | animation, screen recordings | ~0.1 s per frame |
-| **AI: animation and screen** (Real-ESRGAN animevideov3) | Vulkan GPU | animation, screen recordings | ~1.5 s per frame |
-| **AI: anime, strongest** (Real-CUGAN) | Vulkan GPU | anime | ~8 s per frame |
-| **AI: photo detail** (Real-ESRGAN x4plus) | dedicated (gaming) GPU | camera footage | ~60 s per frame |
+| **AI: animation and screen** (Real-ESRGAN animevideov3, ONNX) | CPU; graphics card on Windows | animation, screen recordings | ~1 s per frame |
+| **AI: realistic detail** (Real-ESRGAN general-x4v3, ONNX) | CPU; graphics card on Windows | camera footage | ~2 s per frame |
+| **AI: anime, strongest** (Real-CUGAN, ncnn) | Vulkan GPU | anime | ~8 s per frame |
+| **AI: photo detail** (Real-ESRGAN x4plus, ncnn) | dedicated (gaming) GPU | camera footage | ~60 s per frame |
 
-- **Windows (MSIX)** includes the AI upscalers (Real-ESRGAN and Real-CUGAN, about 90 MB): the
-  Store restricts apps that download and run programs, and Smart App Control blocks unsigned
-  downloaded programs, whereas inside the package they're signed with the app. The small GPU
-  shaders are downloaded on first use. **Linux** downloads all of them on first use (70 KB to 47 MB,
-  after asking), keeping the tarball smaller for people who won't use them.
-- Every component is pinned to an exact file and SHA-256 checksum in
+- **ArtCNN** is trained to recreate real detail rather than invent it. Measured against the real
+  720p frames of a camera clip, it was the most faithful method tested (SSIM 0.9911, PSNR 46.8 dB,
+  against Lanczos's 0.9907 / 46.2 dB) and visibly crisper. It replaced FSRCNNX, which scored below
+  Lanczos.
+- **AI strength** (AI methods): the AI's picture is mixed with a faithful Lanczos enlargement of the
+  same frame. GAN-trained models such as Real-ESRGAN invent texture and can paint over real detail;
+  30–50% keeps most of the real picture while sharpening edges (on the camera clip, 30% raised
+  fidelity from 37.9 to 44.8 dB).
+- **ONNX models** (ArtCNN and the two compact Real-ESRGAN models, 7.6 MB together) ship with the app
+  in a `models` folder and run in-process through ONNX Runtime: on the CPU anywhere, and on Windows
+  on any DirectX 12 graphics card through DirectML, falling back to the CPU if that isn't possible.
+  `MYVIDEOEDITOR_ONNX_DEVICE=cpu` forces the CPU. On integrated graphics, ONNX Runtime's CPU kernels
+  can be faster than the GPU (ArtCNN ran 8–150× faster on the Iris Xe laptop's CPU than as a GPU
+  shader). Frames are processed in overlapping tiles, so memory stays bounded at any size. The
+  Real-ESRGAN models were converted from the official weights by `tools/convert-realesrgan-onnx.py`
+  (checksums pinned); ONNX Runtime uses the DirectML build on Windows and the CPU build elsewhere,
+  both 1.24.4 (the last DirectML release; Microsoft now steers new work to Windows ML).
+- **Windows (MSIX)** also includes the ncnn AI programs (Real-ESRGAN x4plus and Real-CUGAN, about
+  90 MB): the Store restricts apps that download and run programs, and Smart App Control blocks
+  unsigned downloaded programs, whereas inside the package they're signed with the app. The small
+  Anime4K shaders download on first use. **Linux** downloads the ncnn programs on first use (after
+  asking).
+- Every downloadable component is pinned to an exact file and SHA-256 checksum in
   `src/MyVideoEditor.Core/Upscaling/components.json`, which both the app and
-  `packaging/build-msix.ps1` read, so the bundled and downloaded copies can't drift apart. Downloads
-  go to the data folder under `tools/`. Licences: FSRCNNX GPL-3.0, Anime4K MIT, Real-ESRGAN MIT
-  (program) and BSD-3-Clause (models), Real-CUGAN MIT, ncnn BSD-3-Clause; the bundled ones' texts are
-  in `tools/notices/upscalers/` and go into `THIRD-PARTY-NOTICES.txt`.
-- The GPU is found through Vulkan: a dedicated card is preferred, then integrated graphics.
-  Software renderers (llvmpipe) are never used for real work.
-- AI methods work on frames in batches sized to the free disk space, piped straight back into the
-  encoder, so even long videos need only about 1.5 GB of working space. If the graphics card runs
-  out of memory, smaller tiles are tried automatically. Before a long AI job the app estimates the
-  time and asks.
+  `packaging/build-msix.ps1` read. Downloads go to the data folder under `tools/`. Licences: ArtCNN
+  MIT, Anime4K MIT, Real-ESRGAN MIT (program) and BSD-3-Clause (models), Real-CUGAN MIT, ncnn
+  BSD-3-Clause, ONNX Runtime MIT, DirectML Microsoft redistributable licence; the texts go into
+  `THIRD-PARTY-NOTICES.txt`.
+- Vulkan GPUs (for Anime4K and the ncnn programs) are chosen dedicated first, then integrated;
+  software renderers (llvmpipe) are never used for real work.
+- The ncnn AI programs work on frames in batches sized to the free disk space, piped straight back
+  into the encoder, so even long videos need only about 1.5 GB of working space; if the graphics card
+  runs out of memory, smaller tiles are tried automatically. Before a long AI job the app estimates
+  the time and asks.
 - GPU and AI methods are only used when the picture gets bigger; otherwise Lanczos is used.
-- How they compare: on camera footage, FSRCNNX gives slightly crisper edges than Lanczos; the AI
-  models designed for animation turn camera footage into a painted look, so they're offered for
-  animation. On animation, Real-ESRGAN's video model was clearly the best (clean lines, blur
-  removed). Fidelity scores (SSIM/PSNR) always favour plain Lanczos and VMAF rewards any sharpening,
-  so the choice and the tests rely on what each method is for, not on beating Lanczos at a score.
+- **CPU and heat** (Convert tab): a thread limit (Full, Balanced = half, Light = 2, or a number) for
+  ffmpeg, ONNX Runtime and the frame code, to keep laptops cooler on long jobs; **low priority** (on
+  by default) for every process and thread a conversion uses, so other programs come first (on
+  Linux the ONNX worker threads are created on a lowered thread so they inherit it; on Windows the
+  app's priority class is lowered while converting); and **AI runs on** Automatic / CPU / graphics
+  card. On Linux, "graphics card" runs the animation model through the Real-ESRGAN Vulkan program
+  instead of ONNX on the CPU; Automatic uses whichever the speed test found faster.
+- **Convert again** (per file) and **Convert all again** redo conversions with the current
+  settings; earlier results are kept, as outputs are named after their settings
+  (`clip-1280x720-ArtCNN.mp4`, `clip-1080p-AI-general-40%.mp4`, numbered if repeated), and each file
+  in the list shows what it was converted with.
+- How they compare: fidelity scores (SSIM/PSNR) reward faithfulness and VMAF rewards any
+  sharpening, so neither can judge invented detail on its own; the comparisons above use both, plus
+  looking at the pictures. The AI models made for animation turn camera footage into a painted look,
+  so they're offered for animation; on animation, Real-ESRGAN's video model was clearly the best.
 
 ### Capture and annotate
 

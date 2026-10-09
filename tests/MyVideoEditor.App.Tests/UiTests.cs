@@ -226,7 +226,7 @@ public class UiTests
         vm.SelectedTab = 1;
         var convert = vm.Convert;
         // Install the shaders first, so the test doesn't stop at the "download?" question.
-        foreach (var c in new[] { Core.Upscaling.UpscalerComponents.Fsrcnnx, Core.Upscaling.UpscalerComponents.Anime4K })
+        foreach (var c in new[] { Core.Upscaling.UpscalerComponents.Anime4K })
             if (!Core.Upscaling.UpscalerComponents.IsInstalled(c))
                 Task.Run(() => Core.Upscaling.UpscalerComponents.InstallAsync(c)).GetAwaiter().GetResult();
         Await(convert.AddFilesAsync([Media(() => TestMedia.PatternAsync(2, 320, 240))]));
@@ -240,10 +240,14 @@ public class UiTests
         Assert.Contains("under a minute", lanczos.Status);
         Assert.Single(convert.Scalings, o => o.IsRecommended);
         Assert.Same(convert.Scalings.Single(o => o.IsRecommended), convert.SelectedScaling);
-        // AI methods aren't downloaded here, so they're offered for download rather than timed.
-        var ai = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.AiAnimation);
-        if (ai.IsAvailable)
-            Assert.Contains("download", ai.Status);
+        // Bundled ONNX AI models are timed; the downloadable AI programs are offered for download instead.
+        Assert.NotNull(convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.AiAnimation).Estimate);
+        var cugan = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.AiAnime);
+        if (cugan.IsAvailable)
+        {
+            Assert.Null(cugan.Estimate);
+            Assert.Contains("download", cugan.Status);
+        }
         Pump();
         Screenshot(window, "06-upscaling");
         window.CloseWithoutPrompt();
@@ -259,18 +263,7 @@ public class UiTests
         Assert.Same(convert.Jobs[0], convert.SelectedJob);
         Assert.Equal(2, convert.PreviewTime, 1);
         convert.SizePreset = "1280×720";
-        // The GPU method when this computer has one (installed first, so no download question), otherwise Enhanced.
-        var gpu = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.GpuDetail);
-        if (gpu.IsAvailable)
-        {
-            if (!Core.Upscaling.UpscalerComponents.IsInstalled(gpu.Method.Component!))
-                Task.Run(() => Core.Upscaling.UpscalerComponents.InstallAsync(gpu.Method.Component!)).GetAwaiter().GetResult();
-            convert.SelectedScaling = gpu;
-        }
-        else
-        {
-            convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.Enhanced);
-        }
+        convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.ArtCnn);
         Await(convert.PreviewCommand.ExecuteAsync(null));
         Assert.DoesNotContain("failed", convert.PreviewText);
         Assert.Equal(convert.PreviewAfter!.PixelSize, convert.PreviewBefore!.PixelSize);
@@ -288,6 +281,138 @@ public class UiTests
         // Changing a setting marks the preview out of date.
         convert.ResizeMode = Core.Conversion.ResizeMode.Fill;
         Assert.True(convert.PreviewStale);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Slider_shows_the_original_frame_and_strength_is_for_ai_only()
+    {
+        var (window, vm) = Open();
+        vm.SelectedTab = 1;
+        var convert = vm.Convert;
+        Await(convert.AddFilesAsync([Media(() => TestMedia.PatternAsync(4, 320, 240))]));
+        WaitFor(() => convert.ScrubFrame != null);
+        convert.PreviewTime = 3.2;
+        WaitFor(() => convert.ScrubLabel.Contains("00:03.20"));
+        Assert.NotNull(convert.ScrubFrame);
+        Pump();
+        Screenshot(window, "09-scrub");
+
+        convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.ArtCnn);
+        Assert.False(convert.ShowsAiStrength);
+        convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.AiGeneral);
+        Assert.True(convert.ShowsAiStrength);
+        convert.AiStrength = 40;
+        Assert.Equal(0.4, convert.BuildSettings().Settings!.AiStrength, 3);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Compare_all_shows_every_method_this_computer_can_run()
+    {
+        var (window, vm) = Open();
+        vm.SelectedTab = 1;
+        var convert = vm.Convert;
+        Await(convert.AddFilesAsync([Media(() => TestMedia.PatternAsync(2, 160, 120))]));
+        convert.SizePreset = "Custom";
+        convert.CustomWidth = "640";
+        convert.CustomHeight = "480";
+        convert.AiStrength = 70;
+        CompareAllViewModel? compare = null;
+        convert.CompareAllRequested += c => compare = c;
+        convert.CompareAllCommand.Execute(null);
+        Assert.NotNull(compare);
+        var runnable = convert.Scalings.Count(o => o.IsAvailable && !o.Method.NeedsDownload);
+        Assert.Equal(runnable + 1, compare!.Tiles.Count);
+        Assert.Contains(compare.Tiles, t => t.Label.Contains("70% strength"));
+
+        var compareWindow = new CompareAllWindow(compare) { WindowState = WindowState.Normal, Width = 1440, Height = 900 };
+        compareWindow.Show();
+        WaitFor(() => !compare.IsRendering && compare.Tiles.All(t => t.State != TileState.Waiting && t.State != TileState.Rendering), 180_000);
+        Assert.All(compare.Tiles.Skip(1), t => Assert.Equal(TileState.Done, t.State));
+        Assert.All(compare.Tiles, t => Assert.Equal(new Avalonia.PixelSize(640, 480), t.Picture!.PixelSize));
+        Assert.Contains(compare.Tiles, t => t.Detail.Contains("on the CPU"));
+        Pump();
+        Screenshot(compareWindow, "10-compare-all");
+        compare.Zoom = 2;
+        Pump();
+        Screenshot(compareWindow, "11-compare-all-200");
+        compareWindow.Close();
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Toolbar_buttons_are_all_the_same_size()
+    {
+        var (window, vm) = Open();
+        foreach (var tab in new[] { 0, 1, 2 })
+        {
+            vm.SelectedTab = tab;
+            Pump(100);
+            var buttons = window.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>().Cast<Control>()
+                .Concat(window.GetVisualDescendants().OfType<Button>())
+                .Where(b => b.Classes.Contains("tool") && b.IsEffectivelyVisible)
+                .ToList();
+            Assert.NotEmpty(buttons);
+            Assert.All(buttons, b => Assert.Equal(30, b.Bounds.Height));
+            Assert.All(buttons.Where(b => b.Classes.Contains("icon")), b => Assert.Equal(30, b.Bounds.Width));
+            Screenshot(window, $"12-buttons-tab{tab}");
+        }
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Files_can_be_converted_again_with_new_settings()
+    {
+        var (window, vm) = Open();
+        var convert = vm.Convert;
+        Await(convert.AddFilesAsync([Media(() => TestMedia.PatternAsync(1, 160, 120))]));
+        convert.OutputFolder = TestMedia.NewOutputDirectory();
+        convert.SizePreset = "1280×720";
+        convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.Lanczos);
+        Await(convert.StartCommand.ExecuteAsync(null));
+        var job = Assert.Single(convert.Jobs);
+        Assert.Equal(ConvertState.Done, job.State);
+        var first = job.OutputPath!;
+        Assert.EndsWith("-1280x720-Lanczos.mp4", first);
+        Assert.Contains("Lanczos", job.SettingsText);
+        Assert.False(convert.CanStart); // nothing waiting
+        Assert.True(job.CanConvertAgain);
+
+        convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.ArtCnn);
+        Await(convert.ConvertAgainCommand.ExecuteAsync(job));
+        Assert.Equal(ConvertState.Done, job.State);
+        Assert.EndsWith("-1280x720-ArtCNN.mp4", job.OutputPath);
+        Assert.True(File.Exists(first), "the earlier result is kept");
+        Assert.Contains("ArtCNN", job.SettingsText);
+
+        // Same settings again: a numbered name rather than overwriting.
+        Await(convert.ConvertAllAgainCommand.ExecuteAsync(null));
+        Assert.EndsWith("-1280x720-ArtCNN (2).mp4", job.OutputPath);
+        Assert.Equal(3, Directory.GetFiles(convert.OutputFolder!).Length);
+        Screenshot(window, "13-convert-again");
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Cpu_and_heat_settings_reach_the_conversion()
+    {
+        var (window, vm) = Open();
+        var convert = vm.Convert;
+        Assert.True(convert.LowPriority, "low priority is the default");
+        Assert.Null(convert.BuildSettings().Settings!.Limits.MaxThreads);
+        convert.CpuUseIndex = 2; // Light
+        Assert.Equal(Math.Min(2, Environment.ProcessorCount), convert.BuildSettings().Settings!.Limits.Threads);
+        convert.CpuUseIndex = 3; // Custom
+        Assert.True(convert.IsCustomCpu);
+        convert.CustomThreads = 3;
+        Assert.Equal(Math.Min(3, Environment.ProcessorCount), convert.BuildSettings().Settings!.Limits.Threads);
+        convert.AiDeviceIndex = 1;
+        Assert.Equal(Core.Conversion.AiDevice.Cpu, convert.BuildSettings().Settings!.Limits.Device);
+        Assert.True(convert.BuildSettings().Settings!.Limits.LowPriority);
+        vm.SelectedTab = 1;
+        Pump(100);
+        Screenshot(window, "14-cpu-heat");
         window.CloseWithoutPrompt();
     }
 

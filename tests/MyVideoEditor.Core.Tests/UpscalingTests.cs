@@ -215,7 +215,7 @@ public class UpscalingTests
         var progress = new List<FfmpegProgress>();
         await converter.ConvertAsync(source, output, new ConversionSettings
         {
-            Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnimation, Width = 320, Height = 240, Quality = Quality.High,
+            Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnime, Width = 320, Height = 240, Quality = Quality.High,
         }, new Progress<FfmpegProgress>(progress.Add));
 
         var result = await MediaProbe.Default.ProbeAsync(output);
@@ -276,9 +276,10 @@ public class UpscalingTests
     }
 
     [Theory]
-    [InlineData(ScaleAlgorithm.GpuDetail)]
+    [InlineData(ScaleAlgorithm.ArtCnn)]
     [InlineData(ScaleAlgorithm.GpuLines)]
     [InlineData(ScaleAlgorithm.AiAnimation)]
+    [InlineData(ScaleAlgorithm.AiGeneral)]
     [InlineData(ScaleAlgorithm.AiAnime)]
     [InlineData(ScaleAlgorithm.AiPhoto)]
     public async Task Real_methods_produce_a_correct_video(ScaleAlgorithm algorithm)
@@ -286,7 +287,7 @@ public class UpscalingTests
         var method = UpscaleMethods.Get(algorithm);
         if (!await ReadyAsync(method))
             return;
-        var ai = method.Kind == UpscaleKind.AiFrames;
+        var ai = method.IsAi;
         // Small, so AI methods finish quickly even on modest GPUs (or a software one in CI).
         var source = await TestMedia.PatternAsync(ai ? 0.2 : 1, ai ? 64 : 320, ai ? 48 : 240);
         var red = await TestMedia.ColorAsync("red", 0.2, ai ? 64 : 320, ai ? 48 : 240);
@@ -311,7 +312,7 @@ public class UpscalingTests
     [Fact]
     public async Task Gpu_shader_works_from_a_folder_with_awkward_characters()
     {
-        var method = UpscaleMethods.Get(ScaleAlgorithm.GpuDetail);
+        var method = UpscaleMethods.Get(ScaleAlgorithm.GpuLines);
         if (!await ReadyAsync(method))
             return;
         var shader = UpscalerComponents.ShaderPath(method.Component!)!;
@@ -322,7 +323,7 @@ public class UpscalingTests
         var copy = Path.Combine(awkward, "shader.glsl");
         File.Copy(shader, copy);
         var filters = string.Join(',', Converter.GpuShaderFilters(new MediaInfo { Path = "x", Width = 320, Height = 240 },
-            new ConversionSettings { Format = OutputFormats.Mp4H264, Width = 640, Height = 480, Algorithm = ScaleAlgorithm.GpuDetail }, method))
+            new ConversionSettings { Format = OutputFormats.Mp4H264, Width = 640, Height = 480, Algorithm = ScaleAlgorithm.GpuLines }, method))
             .Replace(Converter.EscapeFilterPath(shader), Converter.EscapeFilterPath(copy));
         var gpu = VulkanDevices.Best!;
         await new FfmpegRunner().RunAsync(["-init_hw_device", $"vulkan=gpu:{gpu.Index}", "-filter_hw_device", "gpu",
@@ -360,8 +361,10 @@ public class UpscalingTests
 
     [Theory]
     [InlineData(ScaleAlgorithm.Lanczos)]
-    [InlineData(ScaleAlgorithm.GpuDetail)]
-    [InlineData(ScaleAlgorithm.AiAnimation)]
+    [InlineData(ScaleAlgorithm.ArtCnn)]
+    [InlineData(ScaleAlgorithm.GpuLines)]
+    [InlineData(ScaleAlgorithm.AiGeneral)]
+    [InlineData(ScaleAlgorithm.AiAnime)]
     public async Task Previews_show_one_frame_before_and_after(ScaleAlgorithm algorithm)
     {
         var method = UpscaleMethods.Get(algorithm);
@@ -403,7 +406,7 @@ public class UpscalingTests
         foreach (var time in new[] { 0.0, 1.017, 2.9 })
         {
             File.Delete(Path.Combine(dir, "frames.log"));
-            await converter.RenderPreviewAsync(source, new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnimation, Width = 320, Height = 240 },
+            await converter.RenderPreviewAsync(source, new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnime, Width = 320, Height = 240 },
                 time, Path.Combine(dir, "b.png"), Path.Combine(dir, "a.png"));
             Assert.Equal(["1"], File.ReadAllLines(Path.Combine(dir, "frames.log")).Select(l => l.Trim()));
         }
@@ -446,6 +449,66 @@ public class UpscalingTests
         }
     }
 
+    // ---- ONNX ----------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("artcnn")]
+    [InlineData("general")]
+    public async Task Onnx_tiles_join_without_seams(string which)
+    {
+        var model = which == "artcnn" ? OnnxModel.ArtCnn : OnnxModel.RealEsrganGeneral;
+        var luma = model.Channels == OnnxChannels.Luma;
+        var (w, h) = (96, 72);
+        // A real picture: a frame of the test pattern, as the model will get it.
+        var source = await TestMedia.PatternAsync(1, w, h);
+        var raw = Path.Combine(TestMedia.NewOutputDirectory(), "frame.raw");
+        await new FfmpegRunner().RunAsync(["-i", source, "-frames:v", "1", "-pix_fmt", luma ? "yuv444p" : "rgb24", "-f", "rawvideo", "-y", raw]);
+        var frame = await File.ReadAllBytesAsync(raw);
+        var whole = new OnnxUpscaler(model with { TileSize = 4096 }).Upscale(frame, w, h);
+        var tiled = new OnnxUpscaler(model with { TileSize = 40 }).Upscale(frame, w, h);
+        Assert.Equal(whole.Length, tiled.Length);
+        var worst = whole.Zip(tiled, (a, b) => Math.Abs(a - b)).Max();
+        Assert.True(worst <= 3, $"tiles differ from the whole frame by up to {worst}");
+    }
+
+    [Fact]
+    public async Task Ai_strength_mixes_in_a_faithful_enlargement()
+    {
+        var source = await TestMedia.PatternAsync(0.2, 64, 48);
+        var dir = TestMedia.NewOutputDirectory();
+        async Task<string> Convert(ScaleAlgorithm algorithm, double strength)
+        {
+            var output = Path.Combine(dir, $"{algorithm}-{strength}.mp4");
+            await new Converter().ConvertAsync(source, output, new ConversionSettings
+            {
+                Format = OutputFormats.Mp4H264, Algorithm = algorithm, AiStrength = strength, Width = 256, Height = 192, Quality = Quality.High,
+            });
+            return output;
+        }
+        var lanczos = await Convert(ScaleAlgorithm.Lanczos, 1);
+        var none = await Convert(ScaleAlgorithm.AiGeneral, 0);
+        var half = await Convert(ScaleAlgorithm.AiGeneral, 0.5);
+        var full = await Convert(ScaleAlgorithm.AiGeneral, 1);
+        Assert.True(TestMedia.Ssim(none, lanczos) > 0.985, "0% AI is a plain Lanczos enlargement");
+        var halfToLanczos = TestMedia.Ssim(half, lanczos);
+        Assert.True(halfToLanczos < TestMedia.Ssim(none, lanczos) && halfToLanczos > TestMedia.Ssim(full, lanczos), "50% lies in between");
+        Assert.Equal(TestMedia.FrameCount(source), TestMedia.FrameCount(half));
+    }
+
+    [Fact]
+    public async Task Onnx_runs_on_the_device_this_computer_offers()
+    {
+        // On Windows this is DirectML when there's a DirectX 12 adapter (CI: Microsoft's software one), else the CPU.
+        var device = OnnxEngine.DeviceFor(OnnxModel.ArtCnn);
+        Assert.Contains(device, new[] { "CPU", "graphics card (DirectML)" });
+        if (!OperatingSystem.IsWindows())
+            Assert.Equal("CPU", device);
+        var output = Path.Combine(TestMedia.NewOutputDirectory(), "art.mp4");
+        await new Converter().ConvertAsync(await TestMedia.ColorAsync("red", 0.2, 64, 48), output,
+            new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.ArtCnn, Width = 256, Height = 192 });
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 0, 128, 96), (255, 0, 0), 30));
+    }
+
     [Fact]
     public void Recommendation_follows_content_and_time()
     {
@@ -456,9 +519,10 @@ public class UpscalingTests
             [ScaleAlgorithm.AiPhoto] = new(ScaleAlgorithm.AiPhoto, 100, 0, 1000),
         };
         var camera = UpscaleMethods.Recommend(ContentType.Camera, est, TimeSpan.FromHours(1));
-        Assert.Equal(VulkanDevices.Best != null ? ScaleAlgorithm.GpuDetail : ScaleAlgorithm.Enhanced, camera.Algorithm);
+        // AI methods without a time estimate aren't assumed fast; ArtCNN (on the CPU) is.
+        Assert.Equal(ScaleAlgorithm.ArtCnn, camera.Algorithm);
         est[ScaleAlgorithm.AiAnimation] = new(ScaleAlgorithm.AiAnimation, 0.1, 5, 1000);
         var animation = UpscaleMethods.Recommend(ContentType.Animation, est, TimeSpan.FromHours(1));
-        Assert.Equal(VulkanDevices.Best != null ? ScaleAlgorithm.AiAnimation : ScaleAlgorithm.Enhanced, animation.Algorithm);
+        Assert.Equal(ScaleAlgorithm.AiAnimation, animation.Algorithm);
     }
 }

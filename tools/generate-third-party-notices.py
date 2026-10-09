@@ -22,6 +22,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOTICES = os.path.join(ROOT, "tools", "notices")
+# Shipped, but copied by MyVideoEditor.App.csproj rather than listed as package assets.
+COPIED_BY_PROJECT = {"microsoft.ai.directml"}
 # Build-time only: not shipped with the app.
 BUILD_ONLY = {"avalonia.buildservices"}
 # Licences for packages whose metadata doesn't name one (texts in tools/notices/<Package>.txt).
@@ -86,7 +88,8 @@ def runtime_packages(assets, rid):
         package, version = name.split("/")
         if package.lower() in BUILD_ONLY:
             continue
-        if "/" in key and not ships_files(info):
+        # DirectML.dll is copied by the app's project file, not through NuGet's asset lists.
+        if "/" in key and not ships_files(info) and package.lower() not in COPIED_BY_PROJECT:
             continue  # e.g. macOS native assets in a Linux build: nothing of it is shipped
         yield package, version
 
@@ -139,6 +142,11 @@ def main():
         add("FFmpeg (bundled in the ffmpeg folder, run as separate programs)",
             ["https://ffmpeg.org", "Licence: GPL-3.0-or-later (full text: ffmpeg/FFMPEG-LICENSE.txt)"],
             read(source))
+
+    # Upscaling models shipped with every build (src/MyVideoEditor.Core/Upscaling/Models).
+    for model in ["artcnn", "realesrgan-models"]:
+        body = read(os.path.join(NOTICES, "upscalers", f"{model}.txt"))
+        add(body.splitlines()[0].split(":")[0], [], body)
 
     if args.upscalers:
         bundled = sorted(d for d in os.listdir(args.upscalers) if os.path.exists(os.path.join(args.upscalers, d, ".installed")))

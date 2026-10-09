@@ -10,24 +10,22 @@
     <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" Padding="8,6">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
-          <Button Classes="tool" Content="Project…" Command="{Binding ProjectSettingsCommand}"
-                  ToolTip.Tip="Project size, frame rate and background colour" />
-          <Button Classes="tool" Content="Export frame" Command="{Binding ExportFrameCommand}"
-                  ToolTip.Tip="Save the frame at the playhead as a PNG (screenshots for bug reports)" />
-          <Button Classes="accent" Content="Export video…" Command="{Binding ExportCommand}" ToolTip.Tip="Render the timeline to a file (Ctrl+E)" />
+          <Button Classes="tool" Command="{Binding ProjectSettingsCommand}"
+                  ToolTip.Tip="Project size, frame rate and background colour"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Settings}" /><TextBlock Text="Project…" /></StackPanel></Button>
+          <Button Classes="tool" Command="{Binding ExportFrameCommand}"
+                  ToolTip.Tip="Save the frame at the playhead as a PNG (screenshots for bug reports)"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Picture}" /><TextBlock Text="Export frame" /></StackPanel></Button>
+          <Button Classes="accent tool" Command="{Binding ExportCommand}" ToolTip.Tip="Render the timeline to a file (Ctrl+E)"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Export}" /><TextBlock Text="Export video…" /></StackPanel></Button>
         </StackPanel>
         <WrapPanel Orientation="Horizontal">
-          <Button Classes="tool" Content="New" Command="{Binding NewProjectCommand}" ToolTip.Tip="New project (Ctrl+N)" Margin="0,0,4,0" />
-          <Button Classes="tool" Content="Open…" Command="{Binding OpenProjectCommand}" ToolTip.Tip="Open a project (Ctrl+O)" Margin="0,0,4,0" />
-          <Button Classes="tool" Content="Save" Command="{Binding SaveCommand}" ToolTip.Tip="Save the project (Ctrl+S)" Margin="0,0,12,0" />
-          <Button Classes="tool" Content="＋ Import media" Command="{Binding ImportMediaCommand}" ToolTip.Tip="Add video, audio or image files (Ctrl+I), or drag them in" Margin="0,0,12,0" />
-          <Button Classes="tool" Content="↶" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" ToolTip.Tip="{Binding UndoTip}" Margin="0,0,4,0" />
-          <Button Classes="tool" Content="↷" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" ToolTip.Tip="{Binding RedoTip}" Margin="0,0,12,0" />
-          <Button Classes="tool" Content="✂ Split" Command="{Binding SplitCommand}" ToolTip.Tip="Cut clips at the playhead (S)" Margin="0,0,4,0" />
-          <Button Classes="tool" Content="🗑" Command="{Binding DeleteCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Delete selected clips (Del; Shift+Del also closes the gap)" Margin="0,0,12,0" />
-          <Button x:Name="TitleButton" Classes="tool" Content="T Title ▾" ToolTip.Tip="Add a title at the playhead (T)" Margin="0,0,12,0" />
-          <TextBlock Text="Annotate:" VerticalAlignment="Center" Classes="muted" Margin="0,0,6,0" />
-          <StackPanel x:Name="ToolButtons" Orientation="Horizontal" Spacing="2" />
+          <Button Classes="tool" Command="{Binding NewProjectCommand}" ToolTip.Tip="New project (Ctrl+N)" Margin="0,0,4,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.New}" /><TextBlock Text="New" /></StackPanel></Button>
+          <Button Classes="tool" Command="{Binding OpenProjectCommand}" ToolTip.Tip="Open a project (Ctrl+O)" Margin="0,0,4,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Open}" /><TextBlock Text="Open…" /></StackPanel></Button>
+          <Button Classes="tool" Command="{Binding SaveCommand}" ToolTip.Tip="Save the project (Ctrl+S)" Margin="0,0,12,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Save}" /><TextBlock Text="Save" /></StackPanel></Button>
+          <Button Classes="tool" Command="{Binding ImportMediaCommand}" ToolTip.Tip="Add video, audio or image files (Ctrl+I), or drag them in" Margin="0,0,12,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Import}" /><TextBlock Text="Import media" /></StackPanel></Button>
+          <Button Classes="tool icon" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" ToolTip.Tip="{Binding UndoTip}" Margin="0,0,4,0"><controls:LineIcon Data="{x:Static controls:Icons.Undo}" /></Button>
+          <Button Classes="tool icon" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" ToolTip.Tip="{Binding RedoTip}" Margin="0,0,12,0"><controls:LineIcon Data="{x:Static controls:Icons.Redo}" /></Button>
+          <Button Classes="tool" Command="{Binding SplitCommand}" ToolTip.Tip="Cut clips at the playhead (S)" Margin="0,0,4,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Split}" /><TextBlock Text="Split" /></StackPanel></Button>
+          <Button Classes="tool icon" Command="{Binding DeleteCommand}" IsEnabled="{Binding HasSelection}" ToolTip.Tip="Delete selected clips (Del; Shift+Del also closes the gap)" Margin="0,0,12,0"><controls:LineIcon Data="{x:Static controls:Icons.Delete}" /></Button>
+          <Button x:Name="TitleButton" Classes="tool" ToolTip.Tip="Add a title at the playhead (T)" Margin="0,0,12,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Title}" /><TextBlock Text="Title" /><controls:LineIcon Data="{x:Static controls:Icons.ChevronDown}" Size="12" /></StackPanel></Button>
         </WrapPanel>
       </DockPanel>
     </Border>
@@ -71,6 +69,13 @@
 
         <!-- Preview and transport -->
         <DockPanel Grid.Column="2">
+          <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" Padding="8,4">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="Annotate" VerticalAlignment="Center" Classes="muted"
+                         ToolTip.Tip="Pick a tool, then drag on the picture. Hold Shift to draw several." />
+              <StackPanel x:Name="ToolButtons" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" />
+            </StackPanel>
+          </Border>
           <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="8,6">
             <Grid ColumnDefinitions="*,Auto,*">
               <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -79,16 +84,16 @@
                 <TextBlock Text="{Binding DurationText}" Classes="muted" FontFamily="Cascadia Mono, DejaVu Sans Mono, Consolas, monospace" FontSize="12" VerticalAlignment="Center" />
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                <Button Classes="tool" Content="⏮" Command="{Binding GoToStartCommand}" ToolTip.Tip="Start (Home)" />
-                <Button Classes="tool" Content="⏪" Command="{Binding JumpToEdgeCommand}" CommandParameter="-1" ToolTip.Tip="Previous cut (↑)" />
-                <Button Classes="tool" Content="◀" Command="{Binding StepFramesCommand}" CommandParameter="-1" ToolTip.Tip="Previous frame (←)" />
-                <Button x:Name="PlayButton" Classes="accent" MinWidth="56" Content="▶" Command="{Binding PlayPauseCommand}" ToolTip.Tip="Play / pause (Space)" />
-                <Button Classes="tool" Content="▶|" Command="{Binding StepFramesCommand}" CommandParameter="1" ToolTip.Tip="Next frame (→)" />
-                <Button Classes="tool" Content="⏩" Command="{Binding JumpToEdgeCommand}" CommandParameter="1" ToolTip.Tip="Next cut (↓)" />
-                <Button Classes="tool" Content="⏭" Command="{Binding GoToEndCommand}" ToolTip.Tip="End (End)" />
+                <Button Classes="tool icon" Command="{Binding GoToStartCommand}" ToolTip.Tip="Start (Home)"><controls:LineIcon Data="{x:Static controls:Icons.SkipStart}" Filled="True" Size="14" /></Button>
+                <Button Classes="tool icon" Command="{Binding JumpToEdgeCommand}" CommandParameter="-1" ToolTip.Tip="Previous cut (↑)"><controls:LineIcon Data="{x:Static controls:Icons.PreviousCut}" Filled="True" Size="14" /></Button>
+                <Button Classes="tool icon" Command="{Binding StepFramesCommand}" CommandParameter="-1" ToolTip.Tip="Previous frame (←)"><controls:LineIcon Data="{x:Static controls:Icons.PreviousFrame}" /></Button>
+                <Button Classes="accent tool" Width="56" Command="{Binding PlayPauseCommand}" ToolTip.Tip="Play / pause (Space)"><controls:LineIcon x:Name="PlayIcon" Data="{x:Static controls:Icons.Play}" Filled="True" Size="14" /></Button>
+                <Button Classes="tool icon" Command="{Binding StepFramesCommand}" CommandParameter="1" ToolTip.Tip="Next frame (→)"><controls:LineIcon Data="{x:Static controls:Icons.NextFrame}" /></Button>
+                <Button Classes="tool icon" Command="{Binding JumpToEdgeCommand}" CommandParameter="1" ToolTip.Tip="Next cut (↓)"><controls:LineIcon Data="{x:Static controls:Icons.NextCut}" Filled="True" Size="14" /></Button>
+                <Button Classes="tool icon" Command="{Binding GoToEndCommand}" ToolTip.Tip="End (End)"><controls:LineIcon Data="{x:Static controls:Icons.SkipEnd}" Filled="True" Size="14" /></Button>
               </StackPanel>
               <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
-                <TextBlock Text="🔊" VerticalAlignment="Center" ToolTip.Tip="Preview volume" />
+                <controls:LineIcon Data="{x:Static controls:Icons.Volume}" ToolTip.Tip="Preview volume" />
                 <Slider Width="110" Minimum="0" Maximum="150" Value="{Binding PreviewVolume}" VerticalAlignment="Center" />
                 <TextBlock Text="No sound device" Classes="muted" FontSize="11" VerticalAlignment="Center" IsVisible="{Binding !HasAudioOutput}" />
               </StackPanel>
@@ -120,12 +125,12 @@
         <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,1,0,1" Padding="8,3">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <TextBlock Text="TIMELINE" Classes="section" Margin="0,0,8,0" VerticalAlignment="Center" />
-            <Button Classes="tool" Content="−" Click="OnZoomOut" ToolTip.Tip="Zoom out (Ctrl+−, or Ctrl+wheel)" />
-            <Button Classes="tool" Content="＋" Click="OnZoomIn" ToolTip.Tip="Zoom in (Ctrl+=, or Ctrl+wheel)" />
+            <Button Classes="tool icon" Click="OnZoomOut" ToolTip.Tip="Zoom out (Ctrl+−, or Ctrl+wheel)"><controls:LineIcon Data="{x:Static controls:Icons.Minus}" /></Button>
+            <Button Classes="tool icon" Click="OnZoomIn" ToolTip.Tip="Zoom in (Ctrl+=, or Ctrl+wheel)"><controls:LineIcon Data="{x:Static controls:Icons.Plus}" /></Button>
             <Button Classes="tool" Content="Fit" Click="OnZoomFit" ToolTip.Tip="Show the whole project (Ctrl+0)" />
-            <ToggleButton Classes="tool" Content="🧲 Snap" IsChecked="{Binding SnapEnabled}" ToolTip.Tip="Snap to clip edges and the playhead while dragging (hold Alt to override)" Margin="8,0,0,0" />
-            <Button Classes="tool" Content="＋ Video track" Command="{Binding AddTrackCommand}" CommandParameter="video" Margin="8,0,0,0" />
-            <Button Classes="tool" Content="＋ Audio track" Command="{Binding AddTrackCommand}" CommandParameter="audio" />
+            <ToggleButton Classes="tool" IsChecked="{Binding SnapEnabled}" ToolTip.Tip="Snap to clip edges and the playhead while dragging (hold Alt to override)" Margin="8,0,0,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Magnet}" /><TextBlock Text="Snap" /></StackPanel></ToggleButton>
+            <Button Classes="tool" Command="{Binding AddTrackCommand}" CommandParameter="video" Margin="8,0,0,0"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Plus}" /><TextBlock Text="Video track" /></StackPanel></Button>
+            <Button Classes="tool" Command="{Binding AddTrackCommand}" CommandParameter="audio"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Plus}" /><TextBlock Text="Audio track" /></StackPanel></Button>
             <TextBlock Classes="muted" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"
                        Text="Drag clips to move · drag edges to trim · M mute · H hide · L lock · right-click for more" />
           </StackPanel>

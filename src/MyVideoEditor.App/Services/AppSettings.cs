@@ -17,6 +17,12 @@ public sealed class AppSettings
     public string ConvertFormat { get; set; } = "mp4-h264";
     public string ConvertScaling { get; set; } = "Lanczos";
     public string ConvertContent { get; set; } = "Camera";
+    public double ConvertAiStrength { get; set; } = 1.0;
+    /// <summary>"Full", "Balanced", "Light" or "Custom" (with <see cref="ConvertCpuThreads"/>).</summary>
+    public string ConvertCpuUse { get; set; } = "Full";
+    public int ConvertCpuThreads { get; set; } = 4;
+    public bool ConvertLowPriority { get; set; } = true;
+    public string ConvertAiDevice { get; set; } = "Auto";
     public string? CaptureFolder { get; set; }
     public double CaptureFrameRate { get; set; } = 30;
     public bool CaptureCursor { get; set; } = true;

@@ -12,6 +12,26 @@
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.9" />
   </ItemGroup>
 
+  <!--
+    ONNX Runtime runs the upscaling models (ArtCNN, Real-ESRGAN compact) in-process. Built on Windows,
+    the DirectML build is used, which can also run them on any DirectX 12 graphics card; elsewhere the
+    CPU build. Both are pinned to 1.24.4, the last DirectML release, so the API is identical.
+  -->
+  <PropertyGroup>
+    <UseDirectML Condition="'$(UseDirectML)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</UseDirectML>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseDirectML)' == 'true'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.4" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseDirectML)' != 'true'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Upscaling models, shipped in a "models" folder next to the app. -->
+    <None Include="Upscaling\Models\*.onnx" Link="models\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Pinned upscaler downloads; also read by packaging/build-msix.ps1. -->
     <EmbeddedResource Include="Upscaling\components.json" LogicalName="components.json" />

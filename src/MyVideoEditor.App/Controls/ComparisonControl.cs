@@ -22,6 +22,9 @@ public sealed class ComparisonControl : Control
         AvaloniaProperty.Register<ComparisonControl, int>(nameof(Zoom), defaultBindingMode: Avalonia.Data.BindingMode.TwoWay);
     public static readonly StyledProperty<string> BeforeLabelProperty = AvaloniaProperty.Register<ComparisonControl, string>(nameof(BeforeLabel), "Original");
     public static readonly StyledProperty<string> AfterLabelProperty = AvaloniaProperty.Register<ComparisonControl, string>(nameof(AfterLabel), "Converted");
+    /// <summary>When set, this one picture is shown instead of the comparison (the frame being chosen).</summary>
+    public static readonly StyledProperty<Bitmap?> SingleProperty = AvaloniaProperty.Register<ComparisonControl, Bitmap?>(nameof(Single));
+    public static readonly StyledProperty<string> SingleLabelProperty = AvaloniaProperty.Register<ComparisonControl, string>(nameof(SingleLabel), "");
     /// <summary>While set, the picture is dimmed and this message shown over it (a render in progress).</summary>
     public static readonly StyledProperty<string?> OverlayProperty = AvaloniaProperty.Register<ComparisonControl, string?>(nameof(Overlay));
 
@@ -38,7 +41,7 @@ public sealed class ComparisonControl : Control
 
     static ComparisonControl()
     {
-        AffectsRender<ComparisonControl>(BeforeProperty, AfterProperty, SideBySideProperty, ZoomProperty, BeforeLabelProperty, AfterLabelProperty, OverlayProperty);
+        AffectsRender<ComparisonControl>(BeforeProperty, AfterProperty, SideBySideProperty, ZoomProperty, BeforeLabelProperty, AfterLabelProperty, OverlayProperty, SingleProperty, SingleLabelProperty);
     }
 
     public ComparisonControl()
@@ -53,6 +56,8 @@ public sealed class ComparisonControl : Control
     public string BeforeLabel { get => GetValue(BeforeLabelProperty); set => SetValue(BeforeLabelProperty, value); }
     public string AfterLabel { get => GetValue(AfterLabelProperty); set => SetValue(AfterLabelProperty, value); }
     public string? Overlay { get => GetValue(OverlayProperty); set => SetValue(OverlayProperty, value); }
+    public Bitmap? Single { get => GetValue(SingleProperty); set => SetValue(SingleProperty, value); }
+    public string SingleLabel { get => GetValue(SingleLabelProperty); set => SetValue(SingleLabelProperty, value); }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
@@ -96,6 +101,17 @@ public sealed class ComparisonControl : Control
     private void RenderPictures(DrawingContext ctx)
     {
         var bounds = new Rect(Bounds.Size);
+        if (Single is { } single)
+        {
+            ctx.FillRectangle(Background, bounds);
+            var fit = Math.Min(bounds.Width / single.Size.Width, bounds.Height / single.Size.Height);
+            var size = single.Size * fit;
+            using (ctx.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = BitmapInterpolationMode.HighQuality }))
+                ctx.DrawImage(single, new Rect(single.Size), new Rect(bounds.Center.X - size.Width / 2, bounds.Center.Y - size.Height / 2, size.Width, size.Height));
+            if (SingleLabel.Length > 0)
+                Label(ctx, SingleLabel, new Point(8, 8));
+            return;
+        }
         ctx.FillRectangle(Background, bounds);
         if (After is not { } after || Before is not { } before)
         {

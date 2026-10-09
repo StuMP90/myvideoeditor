@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MyVideoEditor.App.ViewModels"
+             xmlns:controls="using:MyVideoEditor.App.Controls"
              x:Class="MyVideoEditor.App.Views.InspectorView"
              x:DataType="vm:ClipInspectorViewModel">
   <UserControl.Styles>
@@ -213,7 +214,7 @@
 
     <!-- Effects -->
     <DockPanel Margin="0,12,0,4">
-      <Button x:Name="AddEffectButton" DockPanel.Dock="Right" Classes="tool" Content="＋ Add effect" FontSize="12" />
+      <Button x:Name="AddEffectButton" DockPanel.Dock="Right" Classes="tool"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Plus}" /><TextBlock Text="Add effect" /></StackPanel></Button>
       <TextBlock Text="EFFECTS" Classes="section" Margin="0" VerticalAlignment="Center" />
     </DockPanel>
     <TextBlock Text="No effects." Classes="muted" FontSize="12" IsVisible="{Binding !HasEffects}" />
@@ -223,8 +224,8 @@
           <Border Background="#14FFFFFF" CornerRadius="4" Padding="8,6" Margin="0,3">
             <StackPanel Spacing="2">
               <DockPanel>
-                <Button DockPanel.Dock="Right" Classes="tool" Content="✕" Command="{Binding RemoveCommand}" ToolTip.Tip="Remove effect" FontSize="11" />
-                <Button DockPanel.Dock="Right" Classes="tool" Content="↺" Command="{Binding ResetCommand}" ToolTip.Tip="Reset to defaults" FontSize="11" Margin="0,0,4,0" IsVisible="{Binding HasParameters}" />
+                <Button DockPanel.Dock="Right" Classes="tool icon" Command="{Binding RemoveCommand}" ToolTip.Tip="Remove effect"><controls:LineIcon Data="{x:Static controls:Icons.Close}" Size="14" /></Button>
+                <Button DockPanel.Dock="Right" Classes="tool icon" Command="{Binding ResetCommand}" ToolTip.Tip="Reset to defaults" Margin="0,0,4,0" IsVisible="{Binding HasParameters}" ><controls:LineIcon Data="{x:Static controls:Icons.Reset}" Size="14" /></Button>
                 <CheckBox IsChecked="{Binding Enabled}" Content="{Binding Label}" ToolTip.Tip="{Binding Description}" FontWeight="SemiBold" />
               </DockPanel>
               <ItemsControl ItemsSource="{Binding Parameters}">

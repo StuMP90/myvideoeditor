@@ -27,12 +27,14 @@ public enum ScaleAlgorithm
     Spline,
     /// <summary>Lanczos plus sharpening and light noise reduction.</summary>
     Enhanced,
-    /// <summary>FSRCNNX shader on the GPU (libplacebo): camera footage.</summary>
-    GpuDetail,
+    /// <summary>ArtCNN (ONNX, CPU or DirectML): faithful, sharper than Lanczos. Any footage.</summary>
+    ArtCnn,
     /// <summary>Anime4K shaders on the GPU (libplacebo): animation and screen recordings.</summary>
     GpuLines,
-    /// <summary>Real-ESRGAN animevideov3: animation and screen recordings.</summary>
+    /// <summary>Real-ESRGAN animevideov3 (ONNX, CPU or DirectML): animation and screen recordings.</summary>
     AiAnimation,
+    /// <summary>Real-ESRGAN general-x4v3 (ONNX, CPU or DirectML): camera footage, realistic detail.</summary>
+    AiGeneral,
     /// <summary>Real-CUGAN: anime.</summary>
     AiAnime,
     /// <summary>Real-ESRGAN x4plus: camera footage, very slow.</summary>
@@ -58,6 +60,13 @@ public sealed record ConversionSettings
     public int Rotate { get; init; }
     public bool Deinterlace { get; init; }
     public double Volume { get; init; } = 1.0;
+    /// <summary>
+    /// For AI methods, how much of the AI's picture to use (0..1); the rest is a faithful Lanczos
+    /// enlargement of the same frame, which keeps real texture the AI would paint over.
+    /// </summary>
+    public double AiStrength { get; init; } = 1.0;
+    /// <summary>CPU threads, priority and where AI models run.</summary>
+    public ResourceLimits Limits { get; init; } = ResourceLimits.Unlimited;
 }
 
 /// <summary>Converts single files between formats, sizes and frame rates (no timeline needed).</summary>
@@ -84,17 +93,23 @@ public sealed class Converter
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         var partial = Path.Combine(Path.GetDirectoryName(full)!, Path.GetFileNameWithoutExtension(full) + ".partial" + Path.GetExtension(full));
         var length = OutputLength(info, settings);
-        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}).");
+        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}, {settings.Limits.Threads} threads{(settings.Limits.LowPriority ? ", low priority" : "")}).");
+        using var priority = settings.Limits.LowerAppOnWindows();
         try
         {
-            if (UpscaleMethods.Get(settings.Algorithm).Kind == UpscaleKind.AiFrames)
+            var kind = EngineFor(settings);
+            if (kind == UpscaleKind.AiFrames)
             {
                 await AiJob.RunAsync(info, partial, settings, progress, cancellationToken).ConfigureAwait(false);
+            }
+            else if (kind == UpscaleKind.Onnx)
+            {
+                await OnnxJob.RunAsync(info, partial, settings, progress, cancellationToken).ConfigureAwait(false);
             }
             else
             {
                 var args = BuildArguments(info, partial, settings, _locator.Capabilities);
-                await _runner.RunAsync(args, length > 0 ? TimeSpan.FromSeconds(length) : null, progress, cancellationToken).ConfigureAwait(false);
+                await _runner.RunAsync(args, length > 0 ? TimeSpan.FromSeconds(length) : null, progress, cancellationToken, limits: settings.Limits).ConfigureAwait(false);
             }
             File.Move(partial, full, overwrite: true);
         }
@@ -104,8 +119,38 @@ public sealed class Converter
         }
     }
 
-    /// <summary>The AI pipeline to use (tests swap in a stand-in program).</summary>
+    /// <summary>The AI program pipeline to use (tests swap in a stand-in program).</summary>
     internal AiUpscaleJob AiJob { get; init; } = new();
+
+    internal OnnxUpscaleJob OnnxJob { get; init; } = new();
+
+    /// <summary>
+    /// How a method runs here. Usually its own kind; the exception is the animation AI model on
+    /// Linux, which can run either in ONNX Runtime on the CPU or in the Real-ESRGAN Vulkan program
+    /// on the graphics card (when installed), following <see cref="ResourceLimits.Device"/>.
+    /// </summary>
+    public static UpscaleKind EngineFor(ConversionSettings s)
+    {
+        var method = UpscaleMethods.Get(s.Algorithm);
+        if (s.Algorithm != ScaleAlgorithm.AiAnimation || OperatingSystem.IsWindows() || !UseVulkanForAnimation(s.Limits.Device))
+            return method.Kind;
+        return UpscaleKind.AiFrames;
+    }
+
+    /// <summary>Whether the animation model should use the Vulkan program (needs it installed and a usable GPU).</summary>
+    public static bool UseVulkanForAnimation(AiDevice device)
+    {
+        if (device == AiDevice.Cpu || !VulkanAnimationAvailable)
+            return false;
+        if (device == AiDevice.Gpu)
+            return true;
+        // Automatic: what the speed test found faster; not measured yet, a dedicated card is usually faster than the CPU.
+        return EnginePreferences.Get(ScaleAlgorithm.AiAnimation) ?? VulkanDevices.Best!.Kind == GpuKind.Discrete;
+    }
+
+    /// <summary>The Real-ESRGAN Vulkan program is installed and there's a GPU for it (Linux; Windows uses DirectML instead).</summary>
+    public static bool VulkanAnimationAvailable =>
+        !OperatingSystem.IsWindows() && UpscalerComponents.ProgramPath(UpscalerComponents.RealEsrgan) != null && VulkanDevices.Best != null;
 
     /// <summary>
     /// GPU and AI methods only make sense when the picture gets bigger and is re-encoded; otherwise
@@ -238,7 +283,8 @@ public sealed class Converter
     /// pixel for pixel and the original's real pixels show. Both are turned into RGB with the same colour
     /// matrix, so any difference is the conversion's.
     /// </summary>
-    public async Task RenderPreviewAsync(string input, ConversionSettings settings, double time, string beforePng, string afterPng,
+    /// <remarks>With <paramref name="beforePng"/> null, only the converted frame is made (comparing several methods).</remarks>
+    public async Task RenderPreviewAsync(string input, ConversionSettings settings, double time, string? beforePng, string afterPng,
         CancellationToken cancellationToken = default)
     {
         var info = await MediaProbe.Default.ProbeAsync(input, cancellationToken).ConfigureAwait(false);
@@ -254,8 +300,12 @@ public sealed class Converter
         if (target.PostFilter != null)
             layout.Add(target.PostFilter);
         layout.Add(StillToRgb(color));
-        var before = new List<string> { "-ss", F(at), "-i", info.Path, "-frames:v", "1", "-vf", string.Join(',', layout), "-update", "1", "-y", beforePng };
-        await _runner.RunAsync(before, cancellationToken: cancellationToken).ConfigureAwait(false);
+        using var priority = settings.Limits.LowerAppOnWindows();
+        if (beforePng != null)
+        {
+            var before = new List<string> { "-ss", F(at), "-i", info.Path, "-frames:v", "1", "-vf", string.Join(',', layout), "-update", "1", "-y", beforePng };
+            await _runner.RunAsync(before, cancellationToken: cancellationToken, limits: settings.Limits).ConfigureAwait(false);
+        }
 
         var s = Effective(info, settings with
         {
@@ -265,10 +315,13 @@ public sealed class Converter
             TrimStart = at,
             TrimEnd = at + 1.5 / Math.Max(1, fps),
         });
-        if (UpscaleMethods.Get(s.Algorithm).Kind == UpscaleKind.AiFrames)
+        var kind = EngineFor(s);
+        if (kind == UpscaleKind.AiFrames)
             await AiJob.RunAsync(info, afterPng, s, null, cancellationToken).ConfigureAwait(false);
+        else if (kind == UpscaleKind.Onnx)
+            await OnnxJob.RunAsync(info, afterPng, s, null, cancellationToken).ConfigureAwait(false);
         else
-            await _runner.RunAsync(BuildArguments(info, afterPng, s, _locator.Capabilities), cancellationToken: cancellationToken).ConfigureAwait(false);
+            await _runner.RunAsync(BuildArguments(info, afterPng, s, _locator.Capabilities), cancellationToken: cancellationToken, limits: s.Limits).ConfigureAwait(false);
     }
 
     /// <summary>YUV to RGB with the source's own matrix (previews; the GPU path has already tagged its frames with it).</summary>

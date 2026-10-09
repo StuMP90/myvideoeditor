@@ -36,10 +36,12 @@ public sealed class AiUpscaleJob
     public async Task RunAsync(MediaInfo info, string output, ConversionSettings settings, IProgress<FfmpegProgress>? progress, CancellationToken cancellationToken)
     {
         var method = UpscaleMethods.Get(settings.Algorithm);
-        if (method.Kind != UpscaleKind.AiFrames)
-            throw new ArgumentException($"{method.Label} isn't an AI method.");
-        var program = ProgramOverride ?? UpscalerComponents.ProgramPath(method.Component!)
-            ?? throw new InvalidOperationException($"{method.Component!.Label} isn't installed.");
+        if (method.Kind != UpscaleKind.AiFrames && Converter.EngineFor(settings) != UpscaleKind.AiFrames && ProgramOverride == null)
+            throw new ArgumentException($"{method.Label} doesn't run as an AI program.");
+        // The animation model's Vulkan program is Real-ESRGAN's.
+        var component = method.Component ?? UpscalerComponents.RealEsrgan;
+        var program = ProgramOverride ?? UpscalerComponents.ProgramPath(component)
+            ?? throw new InvalidOperationException($"{component.Label} isn't installed.");
         var gpu = VulkanDevices.Best;
         if (gpu == null && ProgramOverride == null)
             throw new InvalidOperationException("AI upscaling needs a graphics card with Vulkan support.");
@@ -82,7 +84,7 @@ public sealed class AiUpscaleJob
                 if (count == 0)
                     break;
 
-                tile = await UpscaleBatchAsync(program, inDir, outDir, modelScale, settings.Algorithm, gpu, tile, count, cancellationToken).ConfigureAwait(false);
+                tile = await UpscaleBatchAsync(program, inDir, outDir, modelScale, settings.Algorithm, gpu, tile, count, settings.Limits, cancellationToken).ConfigureAwait(false);
                 for (var i = 0; i < count; i++)
                 {
                     var name = $"{done + i + 1:D8}.png";
@@ -165,70 +167,16 @@ public sealed class AiUpscaleJob
         filters.AddRange(Converter.RotationFilters(s.Rotate));
         filters.Add($"scale=in_color_matrix={color.SwsMatrix}:in_range={color.Range}:flags=accurate_rnd+full_chroma_int,format=rgb24");
         args.AddRange(["-vf", string.Join(',', filters), "-f", "image2pipe", "-c:v", "png", "-compression_level", "1", "pipe:1"]);
-        return Start(args, redirectInput: false);
+        return UpscaleEncoder.Launch(_locator, args, redirectInput: false, s.Limits);
     }
 
-    private Process StartEncoder(MediaInfo info, ConversionSettings s, string output, string rate, ColorSpec color, ScaledSize target)
-    {
-        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-f", "image2pipe", "-framerate", rate, "-c:v", "png", "-i", "pipe:0" };
-        var withAudio = info.HasAudio && !s.RemoveAudio && s.Format.HasAudio;
-        if (withAudio)
-        {
-            // The sound is limited to the video's length rather than using -shortest: sound is often
-            // a little shorter than the picture (AAC frames), and -shortest would drop the last frames.
-            if (s.TrimStart is > 0)
-                args.AddRange(["-ss", F(s.TrimStart.Value)]);
-            args.AddRange(["-t", F(Converter.OutputLength(info, s)), "-i", info.Path]);
-        }
-        args.AddRange(["-map", "0:v"]);
-        if (withAudio)
-            args.AddRange(["-map", "1:a:0"]);
-        // The upscaled frames are RGB: a still preview stays RGB, a video goes back to YUV with the source's matrix.
-        var filters = new List<string>
-        {
-            s.Format.IsStill
-                ? $"scale={target.Width}:{target.Height}:flags=lanczos+accurate_rnd,format=rgb24"
-                : $"scale={target.Width}:{target.Height}:flags=lanczos+accurate_rnd+full_chroma_int:out_color_matrix={color.SwsMatrix}:out_range={color.Range}",
-        };
-        if (target.PostFilter != null)
-            filters.Add(target.PostFilter);
-        filters.Add("setsar=1");
-        args.AddRange(["-vf", string.Join(',', filters)]);
-        args.AddRange(s.Format.CodecArguments(_locator.Capabilities, s.Quality, true, withAudio));
-        if (!s.Format.IsStill)
-            args.AddRange(color.OutputTags);
-        if (!withAudio)
-            args.Add("-an");
-        args.AddRange(["-y", output]);
-        return Start(args, redirectInput: true);
-    }
-
-    private Process Start(List<string> args, bool redirectInput)
-    {
-        var psi = new ProcessStartInfo(_locator.FfmpegPath)
-        {
-            RedirectStandardInput = redirectInput,
-            RedirectStandardOutput = !redirectInput,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
-        Log.Info("upscale", "ffmpeg " + FfmpegRunner.FormatCommandLine(args));
-        var p = Process.Start(psi) ?? throw new InvalidOperationException("Couldn't start ffmpeg.");
-        p.ErrorDataReceived += (_, e) =>
-        {
-            if (!string.IsNullOrWhiteSpace(e.Data))
-                Log.Warn("upscale", "ffmpeg: " + e.Data);
-        };
-        p.BeginErrorReadLine();
-        return p;
-    }
+    private Process StartEncoder(MediaInfo info, ConversionSettings s, string output, string rate, ColorSpec color, ScaledSize target) =>
+        UpscaleEncoder.Launch(_locator, UpscaleEncoder.Arguments(_locator, info, s, color, target, rate,
+            ["-f", "image2pipe", "-framerate", rate, "-c:v", "png", "-i", "pipe:0"], framesAreRgb: true, output), redirectInput: true, s.Limits);
 
     /// <summary>Runs the AI program on a batch, retrying with smaller tiles if it fails (usually: out of GPU memory). Returns the tile size that worked.</summary>
     private async Task<int> UpscaleBatchAsync(string program, string inDir, string outDir, int scale, ScaleAlgorithm algorithm, GpuDevice? gpu,
-        int tile, int expected, CancellationToken cancellationToken)
+        int tile, int expected, ResourceLimits limits, CancellationToken cancellationToken)
     {
         var errors = "";
         foreach (var size in TileSizes.SkipWhile(t => tile != 0 && t != tile))
@@ -247,6 +195,7 @@ public sealed class AiUpscaleJob
             foreach (var a in args)
                 psi.ArgumentList.Add(a);
             using var p = Process.Start(psi)!;
+            limits.Apply(p);
             var stderr = p.StandardError.ReadToEndAsync(CancellationToken.None);
             _ = p.StandardOutput.ReadToEndAsync(CancellationToken.None);
             try
