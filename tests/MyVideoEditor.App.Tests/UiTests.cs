@@ -430,6 +430,75 @@ public class UiTests
     }
 
     [AvaloniaFact]
+    public void Region_selection_shows_the_screen_to_choose_from()
+    {
+        // A red "screenshot": the overlay must show it (dimmed), not a black screen.
+        var shot = new Avalonia.Media.Imaging.WriteableBitmap(new PixelSize(400, 300), new Vector(96, 96), Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul);
+        using (var fb = shot.Lock())
+        {
+            var red = new byte[fb.RowBytes * 300];
+            for (var i = 0; i < red.Length; i += 4)
+                (red[i], red[i + 1], red[i + 2], red[i + 3]) = (0, 0, 255, 255); // B, G, R, A
+            System.Runtime.InteropServices.Marshal.Copy(red, 0, fb.Address, red.Length);
+        }
+        var overlay = new RegionSelectWindow(new PixelRect(0, 0, 400, 300), 1, shot, new TaskCompletionSource<Core.Capture.CaptureTarget?>());
+        overlay.Show();
+        Pump();
+        Assert.True(overlay.HasScreenshot);
+        using var frame = overlay.CaptureRenderedFrame()!;
+        using var copy = new Avalonia.Media.Imaging.WriteableBitmap(frame.PixelSize, frame.Dpi, Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul);
+        using (var fb = copy.Lock())
+        {
+            frame.CopyPixels(fb, Avalonia.Platform.AlphaFormat.Premul);
+            var px = new byte[4];
+            System.Runtime.InteropServices.Marshal.Copy(fb.Address + 150 * fb.RowBytes + 200 * 4, px, 0, 4);
+            var (b, g, r) = (px[0], px[1], px[2]);
+            Assert.True(r > 120 && g < 40 && b < 40, $"overlay shows {r},{g},{b} instead of the screen");
+        }
+        overlay.Close();
+    }
+
+    [AvaloniaFact]
+    public void The_window_comes_back_after_a_capture()
+    {
+        var (window, vm) = Open();
+        vm.SelectedTab = 2;
+        Pump(300);
+        var capture = vm.Capture;
+        capture.SetScreens([new Core.Capture.CaptureTarget(Core.Capture.CaptureTargetKind.Screen, "Whole screen", 0, 0, 320, 240)]);
+        capture.OutputFolder = TestMedia.NewOutputDirectory();
+        capture.Minimise = true;
+        var hidden = false;
+        capture.RecordingChanged += on => hidden |= on && !window.IsVisible;
+        // Whether or not this computer can take the screenshot, the window must be back afterwards.
+        Await(capture.ScreenshotCommand.ExecuteAsync(null));
+        Assert.True(hidden, "the window got out of the way");
+        Pump();
+        Assert.True(window.IsVisible);
+        Assert.NotEqual(WindowState.Minimized, window.WindowState);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Export_opens_one_dialog_however_often_the_tabs_change()
+    {
+        var (window, vm) = Open();
+        Await(vm.Editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(2, 320, 240))], addToTimeline: true));
+        // Each tab switch resets the pages' DataContext.
+        foreach (var tab in new[] { 1, 2, 0, 2, 1, 0 })
+        {
+            vm.SelectedTab = tab;
+            Pump(100);
+        }
+        vm.Editor.ExportCommand.Execute(null);
+        Pump(300);
+        Assert.Single(window.OwnedWindows.OfType<ExportWindow>());
+        foreach (var w in window.OwnedWindows.ToList())
+            w.Close();
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
     public void Converting_a_file_from_the_queue_works()
     {
         var (window, vm) = Open();

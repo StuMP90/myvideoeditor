@@ -66,37 +66,62 @@ public partial class EditorView : UserControl
 
     private EditorViewModel? ViewModel => DataContext as EditorViewModel;
 
+    private EditorViewModel? _subscribed;
+
+    /// <summary>
+    /// Hooks up to the view model once. A TabControl clears and restores its pages' DataContext on
+    /// every tab switch, so subscribing on each change would add another handler every time (several
+    /// export dialogs from one Export).
+    /// </summary>
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
-        Timeline.Editor = ViewModel;
-        Preview.Editor = ViewModel;
-        if (ViewModel != null)
+        if (ViewModel is not { } vm || vm == _subscribed)
+            return;
+        if (_subscribed != null)
         {
-            ViewModel.PropertyChanged += (_, args) =>
-            {
-                switch (args.PropertyName)
-                {
-                    case nameof(EditorViewModel.ActiveTool):
-                        foreach (var (button, tool) in _toolButtons)
-                            button.IsChecked = ViewModel.ActiveTool == tool;
-                        break;
-                    case nameof(EditorViewModel.IsPlaying):
-                        PlayIcon.Data = ViewModel.IsPlaying ? Icons.Pause : Icons.Play;
-                        break;
-                    case nameof(EditorViewModel.DurationText):
-                        SyncScrollBar();
-                        break;
-                }
-            };
-            ViewModel.ExportRequested += export => new ExportWindow { DataContext = export }.ShowDialog(TopLevel.GetTopLevel(this) as Window ?? throw new InvalidOperationException());
-            ViewModel.ProjectSettingsRequested += () =>
-            {
-                if (TopLevel.GetTopLevel(this) is Window owner)
-                    _ = ProjectSettingsWindow.ShowAsync(owner, ViewModel);
-            };
-            Dispatcher.UIThread.Post(() => Timeline.ZoomToFit(), DispatcherPriority.Background);
+            _subscribed.PropertyChanged -= OnViewModelPropertyChanged;
+            _subscribed.ExportRequested -= OnExportRequested;
+            _subscribed.ProjectSettingsRequested -= OnProjectSettingsRequested;
         }
+        _subscribed = vm;
+        Timeline.Editor = vm;
+        Preview.Editor = vm;
+        vm.PropertyChanged += OnViewModelPropertyChanged;
+        vm.ExportRequested += OnExportRequested;
+        vm.ProjectSettingsRequested += OnProjectSettingsRequested;
+        Dispatcher.UIThread.Post(() => Timeline.ZoomToFit(), DispatcherPriority.Background);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (_subscribed is not { } vm)
+            return;
+        switch (args.PropertyName)
+        {
+            case nameof(EditorViewModel.ActiveTool):
+                foreach (var (button, tool) in _toolButtons)
+                    button.IsChecked = vm.ActiveTool == tool;
+                break;
+            case nameof(EditorViewModel.IsPlaying):
+                PlayIcon.Data = vm.IsPlaying ? Icons.Pause : Icons.Play;
+                break;
+            case nameof(EditorViewModel.DurationText):
+                SyncScrollBar();
+                break;
+        }
+    }
+
+    private void OnExportRequested(ExportViewModel export)
+    {
+        if (TopLevel.GetTopLevel(this) is Window owner)
+            _ = new ExportWindow { DataContext = export }.ShowDialog(owner);
+    }
+
+    private void OnProjectSettingsRequested()
+    {
+        if (TopLevel.GetTopLevel(this) is Window owner && _subscribed != null)
+            _ = ProjectSettingsWindow.ShowAsync(owner, _subscribed);
     }
 
     public void Zoom(double factor) => Timeline.ZoomBy(factor);

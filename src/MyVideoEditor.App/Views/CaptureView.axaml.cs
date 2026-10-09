@@ -7,7 +7,7 @@ namespace MyVideoEditor.App.Views;
 public partial class CaptureView : UserControl
 {
     private RecordingIndicatorWindow? _indicator;
-    private WindowState _stateBeforeRecording;
+    private CaptureViewModel? _subscribed;
 
     public CaptureView()
     {
@@ -20,8 +20,12 @@ public partial class CaptureView : UserControl
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
-        if (ViewModel is not { } vm)
+        // Once per view model: a TabControl resets its pages' DataContext on every tab switch.
+        if (ViewModel is not { } vm || vm == _subscribed)
             return;
+        if (_subscribed != null)
+            _subscribed.RecordingChanged -= OnRecordingChanged;
+        _subscribed = vm;
         vm.SelectRegion = async () => Owner == null ? null : await RegionSelectWindow.SelectAsync(Owner);
         vm.RecordingChanged += OnRecordingChanged;
     }
@@ -49,10 +53,7 @@ public partial class CaptureView : UserControl
         if (recording)
         {
             if (vm.Minimise)
-            {
-                _stateBeforeRecording = owner.WindowState;
-                owner.WindowState = WindowState.Minimized;
-            }
+                WindowHider.Hide(owner);
             if (_indicator == null && (vm.IsRecording || vm.IsCountingDown))
             {
                 _indicator = new RecordingIndicatorWindow { DataContext = vm };
@@ -63,11 +64,7 @@ public partial class CaptureView : UserControl
         {
             _indicator?.Close();
             _indicator = null;
-            if (vm.Minimise && owner.WindowState == WindowState.Minimized)
-            {
-                owner.WindowState = _stateBeforeRecording == WindowState.Minimized ? WindowState.Normal : _stateBeforeRecording;
-                owner.Activate();
-            }
+            WindowHider.Restore(owner);
         }
     }
 }

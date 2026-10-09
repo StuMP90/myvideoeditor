@@ -10,7 +10,8 @@ namespace MyVideoEditor.App.Views;
 /// <summary>
 /// A full-screen overlay on each monitor: drag out the area to record. Esc or right-click
 /// cancels. It shows a dimmed screenshot of the monitor rather than relying on window
-/// transparency, which isn't available everywhere (X11 without a compositor).
+/// transparency, which isn't available everywhere (X11 without a compositor). Everything is
+/// drawn by a control inside the window: a window's own Render is painted over by its background.
 /// </summary>
 public sealed class RegionSelectWindow : Window
 {
@@ -21,8 +22,9 @@ public sealed class RegionSelectWindow : Window
 
     private readonly Bitmap? _screenshot;
 
-    private RegionSelectWindow(PixelRect screenBounds, double scaling, Bitmap? screenshot, TaskCompletionSource<CaptureTarget?> result)
+    internal RegionSelectWindow(PixelRect screenBounds, double scaling, Bitmap? screenshot, TaskCompletionSource<CaptureTarget?> result)
     {
+        Content = new Surface(this);
         _screenBounds = screenBounds;
         _screenshot = screenshot;
         _result = result;
@@ -46,10 +48,11 @@ public sealed class RegionSelectWindow : Window
     public static async Task<CaptureTarget?> SelectAsync(Window owner)
     {
         var screens = owner.Screens.All;
+        if (screens.Count == 0)
+            return null;
         var result = new TaskCompletionSource<CaptureTarget?>();
         // Get the app out of the way, then photograph each monitor to draw the overlay on.
-        var state = owner.WindowState;
-        owner.WindowState = WindowState.Minimized;
+        WindowHider.Hide(owner);
         await Task.Delay(400);
         var shots = new List<Bitmap?>();
         foreach (var s in screens)
@@ -69,8 +72,7 @@ public sealed class RegionSelectWindow : Window
                 w.Close();
             foreach (var shot in shots)
                 shot?.Dispose();
-            owner.WindowState = state == WindowState.Minimized ? WindowState.Normal : state;
-            owner.Activate();
+            WindowHider.Restore(owner);
         }
         return region;
     }
@@ -96,9 +98,16 @@ public sealed class RegionSelectWindow : Window
         }
     }
 
-    public override void Render(DrawingContext ctx)
+    /// <summary>Draws the overlay (the window's own Render would be covered by its background).</summary>
+    private sealed class Surface(RegionSelectWindow owner) : Control
     {
-        base.Render(ctx);
+        public override void Render(DrawingContext ctx) => owner.Draw(ctx);
+    }
+
+    internal bool HasScreenshot => _screenshot != null;
+
+    private void Draw(DrawingContext ctx)
+    {
         if (_screenshot != null)
         {
             ctx.DrawImage(_screenshot, new Rect(_screenshot.Size), new Rect(Bounds.Size));
@@ -146,7 +155,7 @@ public sealed class RegionSelectWindow : Window
         if (_start == null)
             return;
         _current = e.GetPosition(this);
-        InvalidateVisual();
+        (Content as Control)?.InvalidateVisual();
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -158,7 +167,7 @@ public sealed class RegionSelectWindow : Window
         if (r.Width < 16 || r.Height < 16)
         {
             _start = null;
-            InvalidateVisual();
+            (Content as Control)?.InvalidateVisual();
             return;
         }
         var scaling = RenderScaling;
