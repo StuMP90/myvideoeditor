@@ -56,9 +56,12 @@ public partial class HelpWindow : Window
         ("Convert", new (string?, string)[]
         {
             (null, "Converts files without a timeline: change format, resize (fit with bars, fill and crop, or stretch), upscale, change the frame rate, trim, rotate, or copy into a new container without re-encoding."),
-            (null, "Upscaling: CPU methods (Lanczos, Enhanced) work everywhere. With a graphics card (integrated is fine), Sharper detail (camera footage) and Cleaner lines (animation, screen recordings) are nearly as fast and crisper. AI methods (Real-ESRGAN, Real-CUGAN) are the strongest but slow without a dedicated graphics card. All are free and run on this computer. The Windows version includes the AI upscalers; the small GPU shaders (and, on Linux, the AI upscalers) download on first use, after asking."),
+            (null, "Upscaling: Lanczos and Enhanced work everywhere. Sharper detail (ArtCNN) is a small neural network that recreates real detail: crisper than Lanczos, just as faithful, and fast on any computer's CPU. AI methods (Real-ESRGAN, Real-CUGAN) sharpen more but invent texture; lower AI strength to mix in more of the real picture (30–50% suits camera footage). On Windows, ONNX methods also use the graphics card. All run on this computer."),
             (null, "Choose what the video is, set a size, then Test speed on this PC: it times each method on a few frames of your video and recommends the best one that finishes within an hour."),
-            (null, "Preview frame converts a single frame of the selected file with the current settings and shows it against the original: drag the divider, or switch to side by side; zoom to 100% or 200% (or use the mouse wheel) and drag to look around. The original is shown enlarged without smoothing, so you see its real pixels."),
+            (null, "Drag the frame slider to find a moment (the original frame shows straight away). Preview frame converts that frame with the current settings and compares it with the original: drag the divider, or show side by side; zoom with the menu or mouse wheel and drag to look around."),
+            (null, "Compare all methods shows that frame through every method this computer can run, in a full window, sharing zoom and pan. Double-click a picture to see it alone."),
+            (null, "Convert again (on a file) and Convert all again redo conversions with the current settings. Earlier results are kept: new files are named after their settings, such as clip-1280x720-ArtCNN.mp4."),
+            (null, "CPU and heat: limit the threads conversions use (Full, Balanced, Light or a number) to keep a laptop cooler on long jobs; low priority (on by default) lets other programs come first. AI runs on: Automatic, the CPU or the graphics card."),
         }),
         ("Capture", new (string?, string)[]
         {

@@ -44,13 +44,27 @@
       <Setter Property="Background" Value="{StaticResource PanelBackground}" />
       <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}" />
     </Style>
-    <Style Selector="Button.tool">
-      <Setter Property="Padding" Value="8,4" />
+    <!-- Toolbar buttons: one height everywhere; icon-only ones square. Icons are LineIcons (vector),
+         not symbol or emoji characters, whose fallback fonts differ in size from system to system. -->
+    <Style Selector="Button.tool, ToggleButton.tool">
+      <Setter Property="Height" Value="30" />
       <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
-    <Style Selector="ToggleButton.tool">
-      <Setter Property="Padding" Value="8,4" />
-      <Setter Property="MinWidth" Value="0" />
+    <Style Selector="Button.tool.icon, ToggleButton.tool.icon">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <!-- An icon followed by a label inside a button. -->
+    <Style Selector="StackPanel.iconText">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Spacing" Value="6" />
+    </Style>
+    <Style Selector="StackPanel.iconText > TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Button.record">
       <Setter Property="Background" Value="#D93A2B" />

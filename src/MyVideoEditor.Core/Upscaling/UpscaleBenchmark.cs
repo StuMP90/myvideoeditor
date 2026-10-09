@@ -54,16 +54,29 @@ public sealed class UpscaleBenchmark
         var frames = Math.Max(1, (int)Math.Ceiling(Converter.OutputLength(info, settings) * fps));
         var (srcW, srcH) = settings.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
         var target = ScaledSize.For(srcW, srcH, settings.Width, settings.Height, settings.ResizeMode);
-        var key = string.Join('|', method.Algorithm, VulkanDevices.Best?.Name ?? "no-gpu", _locator.Capabilities.Version, $"{srcW}x{srcH}", $"{target.Width}x{target.Height}");
-
-        if (Lookup(key) is { } cached)
-            return new UpscaleEstimate(method.Algorithm, cached.PerFrame, cached.Startup, frames);
         if (method.Unavailable is { } why)
             return new UpscaleEstimate(method.Algorithm, 0, 0, frames, why);
 
+        // The animation model can run on either engine here (Linux): with Automatic, time both and remember the faster.
+        if (settings.Algorithm == ScaleAlgorithm.AiAnimation && settings.Limits.Device == AiDevice.Auto && Converter.VulkanAnimationAvailable)
+        {
+            var cpu = await EstimateAsync(info, settings with { Limits = settings.Limits with { Device = AiDevice.Cpu } }, cancellationToken).ConfigureAwait(false);
+            var gpu = await EstimateAsync(info, settings with { Limits = settings.Limits with { Device = AiDevice.Gpu } }, cancellationToken).ConfigureAwait(false);
+            var gpuFaster = gpu.Error == null && (cpu.Error != null || gpu.Total < cpu.Total);
+            EnginePreferences.Set(ScaleAlgorithm.AiAnimation, gpuFaster);
+            Log.Info("benchmark", $"Animation model: CPU {cpu.TotalText}, graphics card {gpu.TotalText}; using the {(gpuFaster ? "graphics card" : "CPU")}.");
+            return gpuFaster ? gpu : cpu;
+        }
+
+        var engine = Converter.EngineFor(settings);
+        var key = string.Join('|', method.Algorithm, engine, settings.Limits.Threads, settings.Limits.Device, VulkanDevices.Best?.Name ?? "no-gpu",
+            _locator.Capabilities.Version, $"{srcW}x{srcH}", $"{target.Width}x{target.Height}");
+        if (Lookup(key) is { } cached)
+            return new UpscaleEstimate(method.Algorithm, cached.PerFrame, cached.Startup, frames);
+
         try
         {
-            var (perFrame, startup) = method.Kind == UpscaleKind.AiFrames
+            var (perFrame, startup) = engine == UpscaleKind.AiFrames
                 ? await MeasureAiAsync(info, settings, cancellationToken).ConfigureAwait(false)
                 : await MeasureConversionAsync(info, settings, cancellationToken).ConfigureAwait(false);
             Store(key, perFrame, startup);
@@ -81,7 +94,10 @@ public sealed class UpscaleBenchmark
         }
     }
 
-    /// <summary>CPU and GPU-shader methods: convert a 1-frame and a 30-frame sample; the difference is the per-frame cost.</summary>
+    /// <summary>
+    /// CPU, GPU-shader and ONNX methods: convert a 1-frame and a longer sample (30 frames; 4 for ONNX AI
+    /// models, which take seconds each); the difference is the per-frame cost.
+    /// </summary>
     private async Task<(double PerFrame, double Startup)> MeasureConversionAsync(MediaInfo info, ConversionSettings settings, CancellationToken ct)
     {
         var dir = Path.Combine(AppPaths.CacheDirectory, "benchmark-" + Guid.NewGuid().ToString("N")[..8]);
@@ -89,7 +105,7 @@ public sealed class UpscaleBenchmark
         try
         {
             var fps = settings.FrameRate ?? MediaProbe.ParseRatio(info.FrameRateText);
-            var start = SampleStart(info, settings, SampleFrames / fps);
+            var start = SampleStart(info, settings, (UpscaleMethods.Get(settings.Algorithm).IsAi ? 4 : SampleFrames) / fps);
             var converter = new Converter(_locator);
             async Task<double> Time(int frames)
             {
@@ -104,9 +120,10 @@ public sealed class UpscaleBenchmark
                 await converter.ConvertAsync(info.Path, Path.Combine(dir, $"sample{frames}.mkv"), sample, null, ct).ConfigureAwait(false);
                 return sw.Elapsed.TotalSeconds;
             }
+            var sample = UpscaleMethods.Get(settings.Algorithm).IsAi ? 4 : SampleFrames;
             var one = await Time(1).ConfigureAwait(false);
-            var many = await Time(SampleFrames).ConfigureAwait(false);
-            var perFrame = Math.Max(0.0005, (many - one) / (SampleFrames - 1));
+            var many = await Time(sample).ConfigureAwait(false);
+            var perFrame = Math.Max(0.0005, (many - one) / (sample - 1));
             return (perFrame, Math.Max(0, one - perFrame));
         }
         finally
@@ -119,7 +136,8 @@ public sealed class UpscaleBenchmark
     private async Task<(double PerFrame, double Startup)> MeasureAiAsync(MediaInfo info, ConversionSettings settings, CancellationToken ct)
     {
         var method = UpscaleMethods.Get(settings.Algorithm);
-        var program = UpscalerComponents.ProgramPath(method.Component!) ?? throw new InvalidOperationException($"{method.Component!.Label} isn't installed.");
+        var component = method.Component ?? UpscalerComponents.RealEsrgan; // the animation model's Vulkan program
+        var program = UpscalerComponents.ProgramPath(component) ?? throw new InvalidOperationException($"{component.Label} isn't installed.");
         var gpu = VulkanDevices.Best ?? throw new InvalidOperationException("No usable Vulkan GPU.");
         var dir = Path.Combine(AppPaths.CacheDirectory, "benchmark-" + Guid.NewGuid().ToString("N")[..8]);
         var inDir = Path.Combine(dir, "in");
@@ -139,7 +157,7 @@ public sealed class UpscaleBenchmark
             if (rotation.Count > 0)
                 extract.AddRange(["-vf", string.Join(',', rotation)]);
             extract.Add(Path.Combine(inDir, "%08d.png"));
-            await new FfmpegRunner(_locator).RunAsync(extract, cancellationToken: ct).ConfigureAwait(false);
+            await new FfmpegRunner(_locator).RunAsync(extract, cancellationToken: ct, limits: settings.Limits).ConfigureAwait(false);
 
             var psi = new ProcessStartInfo(program) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true, WorkingDirectory = Path.GetDirectoryName(program)! };
             foreach (var a in new[] { "-i", inDir, "-o", outDir, "-s", scale.ToString(), "-f", "png", "-g", gpu.Index.ToString(), "-j", "1:1:1" })
@@ -148,6 +166,7 @@ public sealed class UpscaleBenchmark
             psi.ArgumentList.Add(settings.Algorithm switch { ScaleAlgorithm.AiAnimation => "realesr-animevideov3", ScaleAlgorithm.AiPhoto => "realesrgan-x4plus", _ => "-1" });
             var sw = Stopwatch.StartNew();
             using var p = Process.Start(psi)!;
+            settings.Limits.Apply(p);
             _ = p.StandardError.ReadToEndAsync(ct);
             _ = p.StandardOutput.ReadToEndAsync(ct);
             double? first = null, last = null;

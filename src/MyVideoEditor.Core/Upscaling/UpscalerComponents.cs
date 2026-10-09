@@ -41,7 +41,6 @@ public static class UpscalerComponents
 
     public static IReadOnlyList<UpscalerComponent> All { get; } = Load();
 
-    public static UpscalerComponent Fsrcnnx => Get("fsrcnnx");
     public static UpscalerComponent Anime4K => Get("anime4k");
     public static UpscalerComponent RealEsrgan => Get("realesrgan");
     public static UpscalerComponent RealCugan => Get("realcugan");
@@ -114,7 +113,7 @@ public static class UpscalerComponents
 
     private static string? Folder(UpscalerComponent component) => Locate(component, BundledDirectory, Directory);
 
-    /// <summary>The installed shader file (FSRCNNX, or the Anime4K chain), or null.</summary>
+    /// <summary>The installed shader file (the Anime4K chain), or null.</summary>
     public static string? ShaderPath(UpscalerComponent component) =>
         Folder(component) is { } dir ? Path.Combine(dir, "shader.glsl") : null;
 
@@ -184,12 +183,7 @@ public static class UpscalerComponents
     /// <summary>Per-component finishing touches: the shader file name, executable permission.</summary>
     private static void PrepareInstalled(UpscalerComponent component, string dir)
     {
-        if (component == Fsrcnnx)
-        {
-            var glsl = System.IO.Directory.EnumerateFiles(dir, "*.glsl").Single();
-            File.Move(glsl, Path.Combine(dir, "shader.glsl"));
-        }
-        else if (component == Anime4K)
+        if (component == Anime4K)
         {
             // "Mode A" (fast, for 1080p and below): clamp highlights, restore lines, then a 2x CNN upscale.
             string Find(string name) => System.IO.Directory.EnumerateFiles(dir, name, SearchOption.AllDirectories).First();

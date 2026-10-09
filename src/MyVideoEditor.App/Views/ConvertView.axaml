@@ -19,8 +19,12 @@
                    Text="Change file formats, make videos bigger or smaller, change the frame rate, trim or rotate. Add files, choose settings on the right, then Convert. Your originals are never changed." />
       </StackPanel>
       <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
-        <Button Content="＋ Add files…" Command="{Binding AddFilesCommand}" />
-        <Button Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
+        <Button Classes="tool" Command="{Binding AddFilesCommand}"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Import}" /><TextBlock Text="Add files…" /></StackPanel></Button>
+        <Button Classes="tool" Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
+        <Button Classes="tool" Command="{Binding ConvertAllAgainCommand}"
+                ToolTip.Tip="Convert every file in the list again with the current settings. Earlier results are kept; new files are named after their settings.">
+          <StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Refresh}" /><TextBlock Text="Convert all again" /></StackPanel>
+        </Button>
       </StackPanel>
       <Border Grid.Row="2" x:Name="DropZone" Classes="panel" BorderThickness="1" CornerRadius="6">
         <Panel>
@@ -32,14 +36,18 @@
                   <Border Padding="4,4">
                     <DockPanel>
                       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <Button Classes="tool" Content="Convert again" IsVisible="{Binding CanConvertAgain}"
+                                ToolTip.Tip="Convert this file again with the current settings (into a new file; the earlier one is kept)"
+                                Command="{Binding $parent[ListBox].((vm:ConvertViewModel)DataContext).ConvertAgainCommand}" CommandParameter="{Binding}" />
                         <Button Classes="tool" Content="Show" IsVisible="{Binding IsDone}"
                                 Command="{Binding $parent[ListBox].((vm:ConvertViewModel)DataContext).OpenOutputCommand}" CommandParameter="{Binding}" />
-                        <Button Classes="tool" Content="✕" IsVisible="{Binding !IsActive}" ToolTip.Tip="Remove from the list"
-                                Command="{Binding $parent[ListBox].((vm:ConvertViewModel)DataContext).RemoveJobCommand}" CommandParameter="{Binding}" />
+                        <Button Classes="tool icon" IsVisible="{Binding !IsActive}" ToolTip.Tip="Remove from the list"
+                                Command="{Binding $parent[ListBox].((vm:ConvertViewModel)DataContext).RemoveJobCommand}" CommandParameter="{Binding}"><controls:LineIcon Data="{x:Static controls:Icons.Close}" /></Button>
                       </StackPanel>
                       <StackPanel Spacing="3">
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding Details}" Classes="muted" FontSize="12" />
+                        <TextBlock Text="{Binding SettingsText, StringFormat='Converted with: {0}'}" Classes="muted" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding HasSettingsText}" />
                         <ProgressBar Value="{Binding Progress}" Maximum="100" IsVisible="{Binding IsActive}" Height="4" MinHeight="4" />
                         <TextBlock Text="{Binding StateText}" FontSize="12" TextWrapping="Wrap" />
                       </StackPanel>
@@ -64,11 +72,15 @@
             <TextBlock Text="PREVIEW" Classes="section" Margin="0" VerticalAlignment="Center" />
           </DockPanel>
           <Grid ColumnDefinitions="Auto,*,Auto">
-            <Panel>
-              <Button Classes="accent" Content="Preview frame" Command="{Binding PreviewCommand}" IsEnabled="{Binding CanPreview}" IsVisible="{Binding !IsPreviewing}"
-                      ToolTip.Tip="Convert just this frame with the current settings and compare it with the original" />
-              <Button Content="Cancel preview" Command="{Binding CancelPreviewCommand}" IsVisible="{Binding IsPreviewing}" />
-            </Panel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Panel>
+                <Button Classes="accent" Content="Preview frame" Command="{Binding PreviewCommand}" IsEnabled="{Binding CanPreview}" IsVisible="{Binding !IsPreviewing}"
+                        ToolTip.Tip="Convert just this frame with the current settings and compare it with the original" />
+                <Button Content="Cancel preview" Command="{Binding CancelPreviewCommand}" IsVisible="{Binding IsPreviewing}" />
+              </Panel>
+              <Button Content="Compare all methods" Command="{Binding CompareAllCommand}" IsEnabled="{Binding CanPreview}"
+                      ToolTip.Tip="Open a full window showing this frame through every upscaling method this computer can run" />
+            </StackPanel>
             <Slider Grid.Column="1" Minimum="0" Maximum="{Binding PreviewDuration}" Value="{Binding PreviewTime}" Margin="10,-6" IsEnabled="{Binding !IsPreviewing}" />
             <TextBlock Grid.Column="2" Text="{Binding PreviewTimeText}" VerticalAlignment="Center" FontFamily="Cascadia Mono, DejaVu Sans Mono, Consolas, monospace" FontSize="12" />
           </Grid>
@@ -77,6 +89,7 @@
         </StackPanel>
         <Border Classes="panel" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
           <controls:ComparisonControl Before="{Binding PreviewBefore}" After="{Binding PreviewAfter}" Overlay="{Binding PreviewOverlay}"
+                                      Single="{Binding ScrubFrame}" SingleLabel="{Binding ScrubLabel}"
                                       SideBySide="{Binding PreviewSideBySide}" Zoom="{Binding PreviewZoom}" />
         </Border>
       </DockPanel>
@@ -142,6 +155,12 @@
                   </ComboBox.ItemTemplate>
                 </ComboBox>
                 <TextBlock Text="{Binding ScalingDescription}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="110,*,44" IsVisible="{Binding ShowsAiStrength}"
+                      ToolTip.Tip="How much of the AI's picture to use; the rest is a faithful Lanczos enlargement of the same frame. Lower values keep more real texture (30–50% works well for camera footage).">
+                  <TextBlock Classes="name" Text="AI strength" />
+                  <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding AiStrength}" Margin="0,-6" />
+                  <TextBlock Grid.Column="2" Text="{Binding AiStrengthText}" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" />
+                </Grid>
                 <Button Classes="tool" Content="{Binding DownloadLabel}" Command="{Binding DownloadScalingCommand}" IsVisible="{Binding ScalingNeedsDownload}"
                         IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Free, and runs entirely on this computer once downloaded." />
                 <Button Classes="tool" Content="Test speed on this PC" Command="{Binding TestSpeedCommand}" IsEnabled="{Binding CanTestSpeed}"
@@ -168,6 +187,24 @@
               <TextBox Grid.Column="2" Text="{Binding TrimEnd}" Watermark="To (end)" />
             </Grid>
             <CheckBox IsChecked="{Binding RemoveAudio}" Content="Remove the sound" IsVisible="{Binding FormatHasVideo}" />
+
+            <TextBlock Text="CPU AND HEAT" Classes="section" />
+            <Grid ColumnDefinitions="110,*">
+              <TextBlock Classes="name" Text="CPU use" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding CpuUseOptions}" SelectedIndex="{Binding CpuUseIndex}" HorizontalAlignment="Stretch"
+                        ToolTip.Tip="How many processor threads conversions may use. Fewer keeps the computer cooler and quieter on long jobs, but takes longer." />
+            </Grid>
+            <Grid ColumnDefinitions="110,*" IsVisible="{Binding IsCustomCpu}">
+              <TextBlock Classes="name" Text="Threads" />
+              <NumericUpDown Grid.Column="1" Minimum="1" Maximum="{Binding MaxThreads}" Value="{Binding CustomThreads}" Increment="1" FormatString="0" />
+            </Grid>
+            <CheckBox IsChecked="{Binding LowPriority}" Content="Run at low priority"
+                      ToolTip.Tip="Other programs get the processor first, so the computer stays responsive; conversions still use whatever is idle." />
+            <Grid ColumnDefinitions="110,*">
+              <TextBlock Classes="name" Text="AI runs on" />
+              <ComboBox Grid.Column="1" ItemsSource="{Binding AiDeviceOptions}" SelectedIndex="{Binding AiDeviceIndex}" HorizontalAlignment="Stretch" />
+            </Grid>
+            <TextBlock Text="{Binding AiDeviceNote}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
 
             <TextBlock Text="SAVE TO" Classes="section" />
             <TextBlock Text="{Binding OutputFolderText}" TextWrapping="Wrap" FontSize="12" />

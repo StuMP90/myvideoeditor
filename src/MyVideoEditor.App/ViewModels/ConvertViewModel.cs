@@ -43,6 +43,16 @@ public sealed partial class ConvertJobViewModel : ObservableObject
     [ObservableProperty]
     private string? _outputPath;
 
+    /// <summary>What the last conversion used ("1440p · Sharper detail (ArtCNN)").</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSettingsText))]
+    private string _settingsText = "";
+
+    public bool HasSettingsText => SettingsText.Length > 0;
+    public bool CanConvertAgain => State is ConvertState.Done or ConvertState.Failed or ConvertState.Cancelled;
+
+    partial void OnStateChanged(ConvertState value) => OnPropertyChanged(nameof(CanConvertAgain));
+
     public bool IsDone => State == ConvertState.Done;
     public bool IsActive => State == ConvertState.Converting;
 
@@ -127,12 +137,108 @@ public sealed partial class ConvertViewModel : ObservableObject
     private string _speedText = "";
 
     public string ScalingDescription => SelectedScaling.Description + (SelectedScaling.Method.Unavailable is { } why ? " " + why : "");
+
+    /// <summary>How much of an AI method's picture to use, 0–100%; the rest is a faithful Lanczos enlargement.</summary>
+    public double AiStrength
+    {
+        get => _settings.ConvertAiStrength * 100;
+        set
+        {
+            _settings.ConvertAiStrength = Math.Clamp(value / 100, 0, 1);
+            _settings.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(AiStrengthText));
+        }
+    }
+
+    public string AiStrengthText => $"{AiStrength:0}%";
+    public bool ShowsAiStrength => SelectedScaling.Method.IsAi;
     public bool ScalingNeedsDownload => SelectedScaling.IsAvailable && SelectedScaling.Method.NeedsDownload;
     public string DownloadLabel => $"Download {SelectedScaling.Method.Component?.Label} ({Shell.FormatSize(SelectedScaling.Method.DownloadSize)})";
     public bool CanTestSpeed => !IsBusy && !IsRunning && Jobs.Count > 0 && ResizeEnabled;
 
+    // ---- CPU and heat ---------------------------------------------------------------------------
+
+    public static int Cores => Environment.ProcessorCount;
+    public decimal MaxThreads => Cores;
+
+    public IReadOnlyList<string> CpuUseOptions { get; } =
+        [$"Full ({Cores} threads)", $"Balanced ({Math.Max(1, Cores / 2)} threads)", "Light (2 threads)", "Custom"];
+
+    private static readonly string[] CpuUseKeys = ["Full", "Balanced", "Light", "Custom"];
+
+    public int CpuUseIndex
+    {
+        get => Math.Max(0, Array.IndexOf(CpuUseKeys, _settings.ConvertCpuUse));
+        set
+        {
+            _settings.ConvertCpuUse = CpuUseKeys[Math.Clamp(value, 0, CpuUseKeys.Length - 1)];
+            _settings.Save();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsCustomCpu));
+        }
+    }
+
+    public bool IsCustomCpu => _settings.ConvertCpuUse == "Custom";
+
+    public decimal CustomThreads
+    {
+        get => Math.Clamp(_settings.ConvertCpuThreads, 1, Cores);
+        set
+        {
+            _settings.ConvertCpuThreads = (int)Math.Clamp(value, 1, Cores);
+            _settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public bool LowPriority
+    {
+        get => _settings.ConvertLowPriority;
+        set
+        {
+            _settings.ConvertLowPriority = value;
+            _settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public IReadOnlyList<string> AiDeviceOptions { get; } = ["Automatic", "CPU", "Graphics card"];
+
+    private static readonly string[] AiDeviceKeys = ["Auto", "Cpu", "Gpu"];
+
+    public int AiDeviceIndex
+    {
+        get => Math.Max(0, Array.IndexOf(AiDeviceKeys, _settings.ConvertAiDevice));
+        set
+        {
+            _settings.ConvertAiDevice = AiDeviceKeys[Math.Clamp(value, 0, AiDeviceKeys.Length - 1)];
+            _settings.Save();
+            OnPropertyChanged();
+            ClearEstimates();
+        }
+    }
+
+    public string AiDeviceNote => OperatingSystem.IsWindows()
+        ? "Graphics card: DirectML, for ArtCNN and the Real-ESRGAN ONNX models (the CPU is used if the card can't run them). Real-CUGAN and AI: photo detail always use the graphics card."
+        : "On Linux the graphics card applies to AI: animation and screen, through the Real-ESRGAN Vulkan program (download it with AI: photo detail). " +
+          "Automatic uses whichever the speed test found faster. Real-CUGAN and AI: photo detail always use the graphics card; other methods use the CPU.";
+
+    /// <summary>The limits from the settings above.</summary>
+    internal ResourceLimits Limits => new(
+        _settings.ConvertCpuUse switch
+        {
+            "Balanced" => Math.Max(1, Cores / 2),
+            "Light" => Math.Min(2, Cores),
+            "Custom" => Math.Clamp(_settings.ConvertCpuThreads, 1, Cores),
+            _ => null,
+        },
+        _settings.ConvertLowPriority,
+        Enum.TryParse<AiDevice>(_settings.ConvertAiDevice, out var device) ? device : AiDevice.Auto);
+
     partial void OnSelectedScalingChanged(UpscaleOptionViewModel value)
     {
+        OnPropertyChanged(nameof(ShowsAiStrength));
         _settings.ConvertScaling = value.Method.Algorithm.ToString();
         _settings.Save();
     }
@@ -298,7 +404,7 @@ public sealed partial class ConvertViewModel : ObservableObject
     public bool ResizeEnabled => SizePreset != "Same as source";
     public bool FormatHasVideo => Format.HasVideo;
     public bool ReencodeOptionsEnabled => !Remux;
-    public bool CanStart => !IsRunning && Jobs.Any(j => j.State != ConvertState.Done);
+    public bool CanStart => !IsRunning && Jobs.Any(j => j.State is ConvertState.Waiting or ConvertState.Failed or ConvertState.Cancelled);
     public string OutputFolderText => OutputFolder ?? "Same folder as each file";
 
     partial void OnOutputFolderChanged(string? value) => OnPropertyChanged(nameof(OutputFolderText));
@@ -358,16 +464,84 @@ public sealed partial class ConvertViewModel : ObservableObject
     {
         PreviewTime = (value?.Info.Duration ?? 0) / 2;
         PreviewStale = PreviewAfter != null;
+        _ = ScrubAsync();
     }
 
-    partial void OnPreviewTimeChanged(double value) => PreviewStale = PreviewAfter != null;
+    partial void OnPreviewTimeChanged(double value)
+    {
+        PreviewStale = PreviewAfter != null;
+        _ = ScrubAsync();
+    }
+
+    /// <summary>The original frame at the slider, shown while choosing which frame to preview.</summary>
+    [ObservableProperty]
+    private Avalonia.Media.Imaging.WriteableBitmap? _scrubFrame;
+
+    [ObservableProperty]
+    private string _scrubLabel = "";
+
+    private bool _scrubRunning;
+    private bool _scrubAgain;
+
+    /// <summary>One grab at a time; moves during a grab collapse into one more grab of the latest position.</summary>
+    private async Task ScrubAsync()
+    {
+        if (_scrubRunning)
+        {
+            _scrubAgain = true;
+            return;
+        }
+        _scrubRunning = true;
+        try
+        {
+            do
+            {
+                _scrubAgain = false;
+                if (SelectedJob is not { Info.HasVideo: true } job)
+                {
+                    ScrubFrame = null;
+                    return;
+                }
+                var time = PreviewTime;
+                var frame = await new FrameGrabber().GrabAsync(job.Info, time, Rotate, 1280, 720);
+                if (frame != null && !_scrubAgain)
+                {
+                    ScrubFrame = EditorViewModel.ToBitmap(frame.Bgra, frame.Width, frame.Height);
+                    ScrubLabel = $"Original at {Timecode.Format(time)}: press Preview frame to compare";
+                }
+            } while (_scrubAgain);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("convert", "Couldn't show the frame.", ex);
+        }
+        finally
+        {
+            _scrubRunning = false;
+        }
+    }
+
+    /// <summary>Raised to open the full-window comparison of every method (handled by the view).</summary>
+    public event Action<CompareAllViewModel>? CompareAllRequested;
+
+    [RelayCommand]
+    private void CompareAll()
+    {
+        var (settings, error) = BuildSettings();
+        if (SelectedJob is not { Info.HasVideo: true } job || settings == null)
+        {
+            PreviewText = error ?? "Choose a video first.";
+            return;
+        }
+        CompareAllRequested?.Invoke(new CompareAllViewModel(job, settings, PreviewTime, Scalings.Select(o => o.Method).ToList()));
+    }
 
     /// <summary>Any setting that changes the result makes the shown preview out of date.</summary>
     protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
         if (PreviewAfter != null && e.PropertyName is nameof(SelectedScaling) or nameof(SizePreset) or nameof(CustomWidth) or nameof(CustomHeight)
-                or nameof(ResizeMode) or nameof(Rotate) or nameof(Deinterlace) or nameof(Format) or nameof(Quality))
+                or nameof(ResizeMode) or nameof(Rotate) or nameof(Deinterlace) or nameof(Format) or nameof(Quality) or nameof(AiStrength) or nameof(AiDeviceIndex))
             PreviewStale = true;
     }
 
@@ -412,6 +586,7 @@ public sealed partial class ConvertViewModel : ObservableObject
             await new Converter().RenderPreviewAsync(job.Info.Path, settings, time, before, after, _previewCts.Token);
             PreviewBefore = LoadBitmap(before);
             PreviewAfter = LoadBitmap(after);
+            ScrubFrame = null;
             // Settings or the frame changed while it rendered: it shows what was asked for then, not now.
             PreviewStale = BuildSettings().Settings != settings || Math.Abs(PreviewTime - time) > 1e-6 || SelectedJob != job;
             var (srcW, srcH) = settings.Rotate % 180 == 0 ? (job.Info.Width, job.Info.Height) : (job.Info.Height, job.Info.Width);
@@ -563,12 +738,52 @@ public sealed partial class ConvertViewModel : ObservableObject
             Rotate = Rotate,
             RemoveAudio = RemoveAudio,
             Deinterlace = Deinterlace,
+            AiStrength = _settings.ConvertAiStrength,
+            Limits = Limits,
         }, null);
     }
 
+    /// <summary>Converts every file that's waiting (and retries failed or cancelled ones), with the current settings.</summary>
     [RelayCommand]
     private async Task Start()
     {
+        foreach (var job in Jobs.Where(j => j.State is ConvertState.Failed or ConvertState.Cancelled))
+            job.State = ConvertState.Waiting;
+        await RunQueueAsync();
+    }
+
+    /// <summary>Converts one file again with the current settings (into a new file; earlier results are kept).</summary>
+    [RelayCommand]
+    private async Task ConvertAgain(ConvertJobViewModel? job)
+    {
+        if (job is not { CanConvertAgain: true })
+            return;
+        job.State = ConvertState.Waiting;
+        job.Progress = 0;
+        OnPropertyChanged(nameof(CanStart));
+        // Already running: the queue picks it up.
+        if (!IsRunning)
+            await RunQueueAsync();
+    }
+
+    /// <summary>Converts every file in the list again with the current settings.</summary>
+    [RelayCommand]
+    private async Task ConvertAllAgain()
+    {
+        foreach (var job in Jobs.Where(j => j.CanConvertAgain))
+        {
+            job.State = ConvertState.Waiting;
+            job.Progress = 0;
+        }
+        OnPropertyChanged(nameof(CanStart));
+        if (!IsRunning)
+            await RunQueueAsync();
+    }
+
+    private async Task RunQueueAsync()
+    {
+        if (IsRunning)
+            return;
         var (settings, error) = BuildSettings();
         if (settings == null)
         {
@@ -586,24 +801,25 @@ public sealed partial class ConvertViewModel : ObservableObject
             }
             if (!await EnsureDownloadedAsync(method, ask: true))
                 return;
-            if (method.Kind == UpscaleKind.AiFrames && !await ConfirmAiTimeAsync(settings))
+            if (method.IsAi && !await ConfirmAiTimeAsync(settings))
                 return;
         }
         IsRunning = true;
         _cts = new CancellationTokenSource();
         var converter = new Converter();
         var done = 0;
+        var description = DescribeSettings(settings);
         try
         {
-            foreach (var job in Jobs.Where(j => j.State != ConvertState.Done).ToList())
+            // A live queue: files marked "Convert again" while this runs are picked up too.
+            while (!_cts.IsCancellationRequested && Jobs.FirstOrDefault(j => j.State == ConvertState.Waiting) is { } job)
             {
-                if (_cts.IsCancellationRequested)
-                    break;
                 var folder = OutputFolder ?? Path.GetDirectoryName(job.Info.Path)!;
-                var output = UniquePath(Path.Combine(folder, Path.GetFileNameWithoutExtension(job.Info.Path) + SuffixFor(settings) + Format.Extension));
+                var output = UniquePath(Path.Combine(folder, Path.GetFileNameWithoutExtension(job.Info.Path) + SuffixFor(settings, ResizeEnabled) + Format.Extension));
                 job.State = ConvertState.Converting;
                 job.Progress = 0;
                 job.Message = "Starting…";
+                job.SettingsText = description;
                 var progress = new Progress<FfmpegProgress>(p =>
                 {
                     job.Progress = (p.Fraction ?? 0) * 100;
@@ -630,6 +846,7 @@ public sealed partial class ConvertViewModel : ObservableObject
                     job.State = ConvertState.Failed;
                 }
             }
+            // Anything still waiting after a cancel stays waiting for the next run.
         }
         finally
         {
@@ -638,6 +855,25 @@ public sealed partial class ConvertViewModel : ObservableObject
             Status = done > 0 ? $"Converted {done} file(s)." : "";
             OnPropertyChanged(nameof(CanStart));
         }
+    }
+
+    /// <summary>"1440p · Sharper detail (ArtCNN)", "same size · MP4 (H.264)".</summary>
+    internal string DescribeSettings(ConversionSettings s)
+    {
+        var parts = new List<string> { s.Format.Label };
+        if (s.Remux)
+            parts.Add("copied without re-encoding");
+        else if (ResizeEnabled)
+        {
+            parts.Add(s.Width != null && s.Height != null ? $"{s.Width}×{s.Height} ({s.ResizeMode})" : s.Height != null ? $"{s.Height}p" : $"{s.Width} wide");
+            var method = UpscaleMethods.Get(s.Algorithm);
+            parts.Add(method.IsAi && s.AiStrength < 0.995 ? $"{method.Label}, {s.AiStrength * 100:0}%" : method.Label);
+        }
+        if (s.FrameRate is { } fps)
+            parts.Add($"{fps:0.##} fps");
+        if (s.TrimStart != null || s.TrimEnd != null)
+            parts.Add("trimmed");
+        return string.Join(" · ", parts);
     }
 
     /// <summary>AI upscaling can take hours: estimate the whole queue first and ask if it's long.</summary>
@@ -677,8 +913,30 @@ public sealed partial class ConvertViewModel : ObservableObject
     [RelayCommand]
     private void Cancel() => _cts?.Cancel();
 
-    private static string SuffixFor(ConversionSettings s) =>
-        s.Height is { } h ? $"-{h}p" : s.Width is { } w ? $"-{w}w" : s.Remux ? "-remux" : "-converted";
+    /// <summary>
+    /// A file-name suffix describing the settings, so conversions with different settings sit side by
+    /// side: "-1440p-ArtCNN", "-1080p-AI-general-40%", "-remux", "-converted".
+    /// </summary>
+    internal static string SuffixFor(ConversionSettings s, bool resized)
+    {
+        if (s.Remux)
+            return "-remux";
+        if (!resized)
+            return "-converted";
+        var size = s.Width != null && s.Height != null ? $"-{s.Width}x{s.Height}" : s.Height is { } h ? $"-{h}p" : $"-{s.Width}w";
+        var method = s.Algorithm switch
+        {
+            ScaleAlgorithm.ArtCnn => "ArtCNN",
+            ScaleAlgorithm.GpuLines => "Anime4K",
+            ScaleAlgorithm.AiAnimation => "AI-animation",
+            ScaleAlgorithm.AiGeneral => "AI-general",
+            ScaleAlgorithm.AiAnime => "AI-CUGAN",
+            ScaleAlgorithm.AiPhoto => "AI-photo",
+            var other => other.ToString(),
+        };
+        var strength = UpscaleMethods.Get(s.Algorithm).IsAi && s.AiStrength < 0.995 ? $"-{s.AiStrength * 100:0}%" : "";
+        return $"{size}-{method}{strength}";
+    }
 
     private static string UniquePath(string path)
     {

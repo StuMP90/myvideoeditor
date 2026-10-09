@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MyVideoEditor.App.ViewModels"
+             xmlns:controls="using:MyVideoEditor.App.Controls"
              xmlns:capture="using:MyVideoEditor.Core.Capture"
              x:Class="MyVideoEditor.App.Views.CaptureView"
              x:DataType="vm:CaptureViewModel">
@@ -23,7 +24,7 @@
           </Border>
 
           <DockPanel Margin="0,10,0,0">
-            <Button DockPanel.Dock="Right" Classes="tool" Content="↻ Refresh" Command="{Binding RefreshCommand}" ToolTip.Tip="Update the list of windows and sound devices" />
+            <Button DockPanel.Dock="Right" Classes="tool" Command="{Binding RefreshCommand}" ToolTip.Tip="Update the list of windows and sound devices" ><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Refresh}" /><TextBlock Text="Refresh" /></StackPanel></Button>
             <TextBlock Text="WHAT TO RECORD" Classes="section" Margin="0" VerticalAlignment="Center" />
           </DockPanel>
           <ListBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" MaxHeight="260">
@@ -37,7 +38,7 @@
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
-          <Button Content="⬚ Select a region…" Command="{Binding PickRegionCommand}" ToolTip.Tip="Drag out a rectangle on the screen" />
+          <Button Classes="tool" Command="{Binding PickRegionCommand}" ToolTip.Tip="Drag out a rectangle on the screen"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Region}" /><TextBlock Text="Select a region…" /></StackPanel></Button>
 
           <TextBlock Text="OPTIONS" Classes="section" />
           <Grid ColumnDefinitions="140,*">
@@ -68,11 +69,11 @@
           </DockPanel>
 
           <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,16,0,0" IsVisible="{Binding IsIdle}">
-            <Button Classes="record" Content="●  Start recording" Command="{Binding StartRecordingCommand}" IsEnabled="{Binding HasSource}" MinWidth="160" />
-            <Button Content="📷  Screenshot" Command="{Binding ScreenshotCommand}" IsEnabled="{Binding HasSource}" />
+            <Button Classes="record tool" Command="{Binding StartRecordingCommand}" IsEnabled="{Binding HasSource}" MinWidth="160"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Record}" Filled="True" /><TextBlock Text="Start recording" /></StackPanel></Button>
+            <Button Classes="tool" Command="{Binding ScreenshotCommand}" IsEnabled="{Binding HasSource}"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Camera}" /><TextBlock Text="Screenshot" /></StackPanel></Button>
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,16,0,0" IsVisible="{Binding !IsIdle}">
-            <Button Classes="record" Content="■  Stop" Command="{Binding StopRecordingCommand}" MinWidth="120" />
+            <Button Classes="record tool" Command="{Binding StopRecordingCommand}" MinWidth="120"><StackPanel Classes="iconText"><controls:LineIcon Data="{x:Static controls:Icons.Stop}" Filled="True" /><TextBlock Text="Stop" /></StackPanel></Button>
             <TextBlock Text="{Binding Elapsed}" FontSize="20" VerticalAlignment="Center" FontFamily="Cascadia Mono, DejaVu Sans Mono, Consolas, monospace" />
           </StackPanel>
           <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,6,0,0" />

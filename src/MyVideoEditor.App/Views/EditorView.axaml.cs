@@ -45,7 +45,9 @@ public partial class EditorView : UserControl
 
         foreach (var tool in EditorViewModel.Tools)
         {
-            var button = new ToggleButton { Content = tool.Glyph, Padding = new Thickness(7, 4), MinWidth = 30 };
+            var button = new ToggleButton { Content = new LineIcon { Data = Icons.ForShape(tool.Shape) } };
+            button.Classes.Add("tool");
+            button.Classes.Add("icon");
             ToolTip.SetTip(button, $"{tool.Label}: {tool.Tip}. Then drag on the preview (hold Shift to draw several).");
             button.Click += (_, _) => ViewModel?.ToggleToolCommand.Execute(tool);
             ToolButtons.Children.Add(button);
@@ -80,7 +82,7 @@ public partial class EditorView : UserControl
                             button.IsChecked = ViewModel.ActiveTool == tool;
                         break;
                     case nameof(EditorViewModel.IsPlaying):
-                        PlayButton.Content = ViewModel.IsPlaying ? "❚❚" : "▶";
+                        PlayIcon.Data = ViewModel.IsPlaying ? Icons.Pause : Icons.Play;
                         break;
                     case nameof(EditorViewModel.DurationText):
                         SyncScrollBar();
