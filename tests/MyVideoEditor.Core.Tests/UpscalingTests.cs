@@ -116,47 +116,46 @@ public class UpscalingTests
     }
 
     [Fact]
-    public void Bundled_copies_are_preferred_and_must_match_the_pinned_checksum()
+    public void Installed_copies_must_match_the_pinned_checksum()
     {
         var component = UpscalerComponents.RealEsrgan;
         if (component.ForThisComputer is not { } download)
             return;
-        var root = TestMedia.NewOutputDirectory();
-        var bundled = Path.Combine(root, "bundled");
-        var tools = Path.Combine(root, "tools");
-        void Mark(string dir, string sha)
+        var tools = Path.Combine(TestMedia.NewOutputDirectory(), "tools");
+        void Mark(string sha)
         {
-            Directory.CreateDirectory(Path.Combine(dir, component.Id));
-            File.WriteAllText(Path.Combine(dir, component.Id, ".installed"), sha);
+            Directory.CreateDirectory(Path.Combine(tools, component.Id));
+            File.WriteAllText(Path.Combine(tools, component.Id, ".installed"), sha);
         }
-        Assert.Null(UpscalerComponents.Locate(component, bundled, tools));
-        Mark(tools, download.Sha256);
-        Assert.Equal(Path.Combine(tools, component.Id), UpscalerComponents.Locate(component, bundled, tools));
-        Mark(bundled, new string('f', 64)); // a different build: ignored
-        Assert.Equal(Path.Combine(tools, component.Id), UpscalerComponents.Locate(component, bundled, tools));
-        Mark(bundled, download.Sha256);
-        Assert.Equal(Path.Combine(bundled, component.Id), UpscalerComponents.Locate(component, bundled, tools));
+        Assert.Null(UpscalerComponents.Locate(component, tools));
+        Mark(new string('f', 64)); // a different build: ignored
+        Assert.Null(UpscalerComponents.Locate(component, tools));
+        Mark(download.Sha256);
+        Assert.Equal(Path.Combine(tools, component.Id), UpscalerComponents.Locate(component, tools));
     }
 
     [Fact]
-    public void Ai_programs_are_marked_for_bundling_in_the_msix_and_have_licence_texts()
+    public void Every_bundled_model_has_a_licence_text_and_no_programs_are_bundled()
     {
         var root = AppContext.BaseDirectory;
         while (!File.Exists(Path.Combine(root, "MyVideoEditor.sln")))
             root = Path.GetDirectoryName(root)!;
-        Assert.Equal(["realesrgan", "realcugan"], UpscalerComponents.All.Where(c => c.BundleInMsix).Select(c => c.Id));
-        foreach (var c in UpscalerComponents.All.Where(c => c.BundleInMsix))
-            Assert.True(File.Exists(Path.Combine(root, "tools", "notices", "upscalers", c.Id + ".txt")), c.Id);
-        Assert.Contains("components.json", File.ReadAllText(Path.Combine(root, "packaging", "build-msix.ps1")));
+        var notices = string.Join("\n", Directory.GetFiles(Path.Combine(root, "tools", "notices", "upscalers"), "*.txt").Select(File.ReadAllText));
+        var models = Directory.GetFiles(Path.Combine(root, "src", "MyVideoEditor.Core", "Upscaling", "Models"), "*.onnx");
+        Assert.NotEmpty(models);
+        Assert.All(models, m => Assert.Contains(Path.GetFileName(m), notices));
+        // Every AI model runs in-process (ONNX Runtime), so the Windows package carries no separate programs.
+        Assert.DoesNotContain("upscalers", File.ReadAllText(Path.Combine(root, "packaging", "build-msix.ps1")));
+        Assert.All(UpscalerComponents.All, c => Assert.False(c.Downloads.ContainsKey("win-x64"), c.Id));
     }
 
     [Fact]
-    public void Every_component_has_a_pinned_download_for_windows_and_linux_x64()
+    public void Every_component_has_a_pinned_download_where_it_is_used()
     {
         foreach (var c in UpscalerComponents.All)
         {
             var any = c.Downloads.ContainsKey("any");
-            Assert.True(any || (c.Downloads.ContainsKey("win-x64") && c.Downloads.ContainsKey("linux-x64")), c.Id);
+            Assert.True(any || c.Downloads.ContainsKey("linux-x64"), c.Id);
             Assert.All(c.Downloads.Values, d =>
             {
                 Assert.StartsWith("https://github.com/", d.Url);
@@ -210,6 +209,7 @@ public class UpscalingTests
         var output = Path.Combine(dir, "ai.mp4");
         var converter = new Converter
         {
+            EngineOverride = UpscaleKind.AiFrames,
             AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, failWithAutoTile: true), BatchFramesOverride = 5, WorkDirectory = Path.Combine(dir, "work") },
         };
         var progress = new List<FfmpegProgress>();
@@ -246,7 +246,7 @@ public class UpscalingTests
         var dir = TestMedia.NewOutputDirectory();
         var source = await TestMedia.PatternAsync(4, 160, 120);
         var work = Path.Combine(dir, "work");
-        var converter = new Converter { AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false), BatchFramesOverride = 10, WorkDirectory = work } };
+        var converter = new Converter { EngineOverride = UpscaleKind.AiFrames, AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false), BatchFramesOverride = 10, WorkDirectory = work } };
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1.5));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => converter.ConvertAsync(source, Path.Combine(dir, "x.mp4"),
             new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnime, Width = 320, Height = 240 }, null, cts.Token));
@@ -365,17 +365,19 @@ public class UpscalingTests
     [InlineData(ScaleAlgorithm.GpuLines)]
     [InlineData(ScaleAlgorithm.AiGeneral)]
     [InlineData(ScaleAlgorithm.AiAnime)]
-    public async Task Previews_show_one_frame_before_and_after(ScaleAlgorithm algorithm)
+    [InlineData(ScaleAlgorithm.AiAnime, true)]
+    public async Task Previews_show_one_frame_before_and_after(ScaleAlgorithm algorithm, bool vulkanProgram = false)
     {
         var method = UpscaleMethods.Get(algorithm);
-        var ai = method.Kind == UpscaleKind.AiFrames;
-        if (ai && !OperatingSystem.IsLinux())
+        if (vulkanProgram && !OperatingSystem.IsLinux())
             return;
-        if (!ai && !await ReadyAsync(method))
+        if (!vulkanProgram && !await ReadyAsync(method))
             return;
         var dir = TestMedia.NewOutputDirectory();
-        // AI previews use the stand-in program, so this runs without a GPU.
-        var converter = ai ? new Converter { AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false) } } : new Converter();
+        // The Vulkan program pipeline uses a stand-in program, so this runs without a GPU.
+        var converter = vulkanProgram
+            ? new Converter { EngineOverride = UpscaleKind.AiFrames, AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false) } }
+            : new Converter();
         var red = await TestMedia.ColorAsync("red", 2, 160, 120);
         var settings = new ConversionSettings { Format = OutputFormats.WebmVp9, Algorithm = algorithm, Width = 640, Height = 360, ResizeMode = ResizeMode.Fit };
         var before = Path.Combine(dir, "before.png");
@@ -400,7 +402,7 @@ public class UpscalingTests
         if (!OperatingSystem.IsLinux())
             return;
         var dir = TestMedia.NewOutputDirectory();
-        var converter = new Converter { AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false) } };
+        var converter = new Converter { EngineOverride = UpscaleKind.AiFrames, AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false) } };
         // 29.97 fps, at a time between frames: the window must still yield just one.
         var source = await TestMedia.NtscPatternAsync(3, 160, 120);
         foreach (var time in new[] { 0.0, 1.017, 2.9 })
@@ -419,7 +421,7 @@ public class UpscalingTests
             return;
         var dir = TestMedia.NewOutputDirectory();
         var work = Path.Combine(dir, "work");
-        var converter = new Converter { AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false, sleepSeconds: 60), WorkDirectory = work } };
+        var converter = new Converter { EngineOverride = UpscaleKind.AiFrames, AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false, sleepSeconds: 60), WorkDirectory = work } };
         var source = await TestMedia.PatternAsync(2, 160, 120);
         using var cts = new CancellationTokenSource();
         var preview = converter.RenderPreviewAsync(source, new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnime, Width = 320, Height = 240 },
@@ -471,6 +473,41 @@ public class UpscalingTests
         Assert.True(worst <= 3, $"tiles differ from the whole frame by up to {worst}");
     }
 
+    [Theory]
+    [InlineData(2, 98, 74)]
+    [InlineData(3, 97, 73)] // odd sides: the 3x model needs multiples of 4
+    [InlineData(4, 30, 22)] // smaller than the model's minimum
+    public async Task Real_cugan_tiles_fit_the_model_at_any_size(int scale, int w, int h)
+    {
+        var method = UpscaleMethods.Get(ScaleAlgorithm.AiAnime);
+        var model = method.OnnxModelFor(scale)!;
+        Assert.Equal(scale, model.Scale);
+        var source = await TestMedia.PatternAsync(1, w, h);
+        var raw = Path.Combine(TestMedia.NewOutputDirectory(), "frame.raw");
+        await new FfmpegRunner().RunAsync(["-i", source, "-frames:v", "1", "-vf", $"scale={w}:{h}", "-pix_fmt", "rgb24", "-f", "rawvideo", "-y", raw]);
+        var frame = await File.ReadAllBytesAsync(raw);
+        var whole = new OnnxUpscaler(model with { TileSize = 4096 }).Upscale(frame, w, h);
+        var tiled = new OnnxUpscaler(model with { TileSize = 32 }).Upscale(frame, w, h);
+        Assert.Equal(w * scale * h * scale * 3, whole.Length);
+        Assert.Equal(whole.Length, tiled.Length);
+        // Its squeeze-and-excitation blocks average over each tile, so tiles differ slightly from the whole frame.
+        var mse = whole.Zip(tiled, (a, b) => (double)(a - b) * (a - b)).Average();
+        var psnr = mse == 0 ? 99 : 10 * Math.Log10(255.0 * 255 / mse);
+        Assert.True(psnr > 35, $"tiles differ from the whole frame: {psnr:0.0} dB");
+    }
+
+    [Fact]
+    public void Real_cugan_uses_the_smallest_model_that_reaches_the_size()
+    {
+        var method = UpscaleMethods.Get(ScaleAlgorithm.AiAnime);
+        Assert.Equal(2, method.OnnxModelFor(1.5)!.Scale);
+        Assert.Equal(2, method.OnnxModelFor(2)!.Scale);
+        Assert.Equal(3, method.OnnxModelFor(2.25)!.Scale);
+        Assert.Equal(4, method.OnnxModelFor(4)!.Scale);
+        Assert.Equal(4, method.OnnxModelFor(6)!.Scale);
+        Assert.Same(OnnxModel.ArtCnn, UpscaleMethods.Get(ScaleAlgorithm.ArtCnn).OnnxModelFor(4));
+    }
+
     [Fact]
     public async Task Ai_strength_mixes_in_a_faithful_enlargement()
     {
@@ -507,6 +544,32 @@ public class UpscalingTests
         await new Converter().ConvertAsync(await TestMedia.ColorAsync("red", 0.2, 64, 48), output,
             new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.ArtCnn, Width = 256, Height = 192 });
         Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 0, 128, 96), (255, 0, 0), 30));
+    }
+
+    [Theory]
+    [InlineData(ScaleAlgorithm.AiPhoto, 0.97)]
+    // Real-CUGAN's program has the original 2022 weights; the ONNX models are converted from the updated ones.
+    [InlineData(ScaleAlgorithm.AiAnime, 0.95)]
+    public async Task Onnx_conversions_match_the_original_programs(ScaleAlgorithm algorithm, double minimumSsim)
+    {
+        // The ONNX conversion (half-precision weights) against the official Vulkan program, on the same frames.
+        if (!Converter.VulkanAvailable(UpscaleMethods.Get(algorithm)))
+            return;
+        var source = await TestMedia.PatternAsync(0.2, 64, 48);
+        var dir = TestMedia.NewOutputDirectory();
+        async Task<string> Run(AiDevice device)
+        {
+            var output = Path.Combine(dir, $"{algorithm}-{device}.mp4");
+            await new Converter().ConvertAsync(source, output, new ConversionSettings
+            {
+                Format = OutputFormats.Mp4H264, Algorithm = algorithm, Width = 256, Height = 192, Quality = Quality.High,
+                Limits = new ResourceLimits(Device: device),
+            });
+            return output;
+        }
+        var onnx = await Run(AiDevice.Cpu);
+        var vulkan = await Run(AiDevice.Gpu);
+        Assert.True(TestMedia.Ssim(onnx, vulkan) > minimumSsim, $"SSIM {TestMedia.Ssim(onnx, vulkan):0.000}");
     }
 
     [Fact]

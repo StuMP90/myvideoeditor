@@ -21,8 +21,6 @@ public sealed record UpscalerComponent
     public required string Homepage { get; init; }
     /// <summary>Per runtime ("linux-x64", "win-x64"…, "any" for platform-independent files).</summary>
     public required IReadOnlyDictionary<string, ComponentDownload> Downloads { get; init; }
-    /// <summary>Included in the Windows (MSIX) package rather than downloaded (Store policy, Smart App Control).</summary>
-    public bool BundleInMsix { get; init; }
 
     public ComponentDownload? ForThisComputer =>
         Downloads.TryGetValue(UpscalerComponents.RuntimeId, out var d) ? d
@@ -47,7 +45,7 @@ public static class UpscalerComponents
 
     private static UpscalerComponent Get(string id) => All.First(c => c.Id == id);
 
-    /// <summary>The pinned downloads, from components.json (shared with the MSIX packaging script).</summary>
+    /// <summary>The pinned downloads, from components.json.</summary>
     private static List<UpscalerComponent> Load()
     {
         using var stream = typeof(UpscalerComponents).Assembly.GetManifestResourceStream("components.json")
@@ -59,7 +57,6 @@ public static class UpscalerComponents
             Label = c.GetProperty("label").GetString()!,
             Licence = c.GetProperty("licence").GetString()!,
             Homepage = c.GetProperty("homepage").GetString()!,
-            BundleInMsix = c.GetProperty("bundleInMsix").GetBoolean(),
             Downloads = c.GetProperty("downloads").EnumerateObject().ToDictionary(
                 d => d.Name,
                 d => new ComponentDownload(d.Value.GetProperty("url").GetString()!, d.Value.GetProperty("size").GetInt64(), d.Value.GetProperty("sha256").GetString()!)),
@@ -83,18 +80,12 @@ public static class UpscalerComponents
     /// <summary>Where downloads are installed (one folder per component).</summary>
     public static string InstallDirectory(UpscalerComponent component) => Path.Combine(Directory, component.Id);
 
-    /// <summary>Components shipped inside the app's own folder (the MSIX bundles the AI programs).</summary>
-    public static string BundledDirectory => Path.Combine(AppContext.BaseDirectory, "upscalers");
+    /// <summary>Installed, from the file this version of the app expects.</summary>
+    public static bool IsInstalled(UpscalerComponent component) => Locate(component, Directory) != null;
 
-    /// <summary>Bundled with the app (nothing to download, can't be removed).</summary>
-    public static bool IsBundled(UpscalerComponent component) => IsValid(Path.Combine(BundledDirectory, component.Id), component);
-
-    /// <summary>Installed, bundled or downloaded, and from the file this version of the app expects.</summary>
-    public static bool IsInstalled(UpscalerComponent component) => Locate(component, BundledDirectory, Directory) != null;
-
-    /// <summary>The folder holding a usable copy: bundled first, then downloaded; null if neither.</summary>
-    internal static string? Locate(UpscalerComponent component, string bundledRoot, string toolsRoot) =>
-        new[] { Path.Combine(bundledRoot, component.Id), Path.Combine(toolsRoot, component.Id) }.FirstOrDefault(d => IsValid(d, component));
+    /// <summary>The folder holding a usable copy, or null.</summary>
+    internal static string? Locate(UpscalerComponent component, string toolsRoot) =>
+        Path.Combine(toolsRoot, component.Id) is var dir && IsValid(dir, component) ? dir : null;
 
     /// <summary>The folder has the ".installed" marker naming the expected download's checksum.</summary>
     private static bool IsValid(string folder, UpscalerComponent component)
@@ -111,7 +102,7 @@ public static class UpscalerComponents
         }
     }
 
-    private static string? Folder(UpscalerComponent component) => Locate(component, BundledDirectory, Directory);
+    private static string? Folder(UpscalerComponent component) => Locate(component, Directory);
 
     /// <summary>The installed shader file (the Anime4K chain), or null.</summary>
     public static string? ShaderPath(UpscalerComponent component) =>
@@ -172,7 +163,7 @@ public static class UpscalerComponents
         }
     }
 
-    /// <summary>Removes a downloaded copy (a bundled one stays: it's part of the app).</summary>
+    /// <summary>Removes a downloaded copy.</summary>
     public static void Uninstall(UpscalerComponent component)
     {
         var dir = InstallDirectory(component);

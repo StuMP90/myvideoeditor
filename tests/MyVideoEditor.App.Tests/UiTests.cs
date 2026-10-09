@@ -56,7 +56,8 @@ public class UiTests
 
     private static void Await(Task task)
     {
-        WaitFor(() => task.IsCompleted, 30000);
+        // Generous: speed tests time the AI models on the CPU.
+        WaitFor(() => task.IsCompleted, 600_000);
         task.GetAwaiter().GetResult();
     }
 
@@ -240,14 +241,11 @@ public class UiTests
         Assert.Contains("under a minute", lanczos.Status);
         Assert.Single(convert.Scalings, o => o.IsRecommended);
         Assert.Same(convert.Scalings.Single(o => o.IsRecommended), convert.SelectedScaling);
-        // Bundled ONNX AI models are timed; the downloadable AI programs are offered for download instead.
+        // The AI models are all bundled (ONNX), so all are timed: nothing needs downloading first.
         Assert.NotNull(convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.AiAnimation).Estimate);
         var cugan = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.AiAnime);
-        if (cugan.IsAvailable)
-        {
-            Assert.Null(cugan.Estimate);
-            Assert.Contains("download", cugan.Status);
-        }
+        Assert.NotNull(cugan.Estimate);
+        Assert.DoesNotContain("download", cugan.Status);
         Pump();
         Screenshot(window, "06-upscaling");
         window.CloseWithoutPrompt();

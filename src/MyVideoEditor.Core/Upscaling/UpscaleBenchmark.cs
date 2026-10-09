@@ -57,14 +57,14 @@ public sealed class UpscaleBenchmark
         if (method.Unavailable is { } why)
             return new UpscaleEstimate(method.Algorithm, 0, 0, frames, why);
 
-        // The animation model can run on either engine here (Linux): with Automatic, time both and remember the faster.
-        if (settings.Algorithm == ScaleAlgorithm.AiAnimation && settings.Limits.Device == AiDevice.Auto && Converter.VulkanAnimationAvailable)
+        // A Real-ESRGAN or Real-CUGAN model can run on either engine here (Linux): with Automatic, time both and remember the faster.
+        if (settings.Limits.Device == AiDevice.Auto && Converter.VulkanAvailable(method))
         {
             var cpu = await EstimateAsync(info, settings with { Limits = settings.Limits with { Device = AiDevice.Cpu } }, cancellationToken).ConfigureAwait(false);
             var gpu = await EstimateAsync(info, settings with { Limits = settings.Limits with { Device = AiDevice.Gpu } }, cancellationToken).ConfigureAwait(false);
             var gpuFaster = gpu.Error == null && (cpu.Error != null || gpu.Total < cpu.Total);
-            EnginePreferences.Set(ScaleAlgorithm.AiAnimation, gpuFaster);
-            Log.Info("benchmark", $"Animation model: CPU {cpu.TotalText}, graphics card {gpu.TotalText}; using the {(gpuFaster ? "graphics card" : "CPU")}.");
+            EnginePreferences.Set(settings.Algorithm, gpuFaster);
+            Log.Info("benchmark", $"{method.Label}: CPU {cpu.TotalText}, graphics card {gpu.TotalText}; using the {(gpuFaster ? "graphics card" : "CPU")}.");
             return gpuFaster ? gpu : cpu;
         }
 
@@ -136,7 +136,7 @@ public sealed class UpscaleBenchmark
     private async Task<(double PerFrame, double Startup)> MeasureAiAsync(MediaInfo info, ConversionSettings settings, CancellationToken ct)
     {
         var method = UpscaleMethods.Get(settings.Algorithm);
-        var component = method.Component ?? UpscalerComponents.RealEsrgan; // the animation model's Vulkan program
+        var component = method.Component ?? method.VulkanAlternative!;
         var program = UpscalerComponents.ProgramPath(component) ?? throw new InvalidOperationException($"{component.Label} isn't installed.");
         var gpu = VulkanDevices.Best ?? throw new InvalidOperationException("No usable Vulkan GPU.");
         var dir = Path.Combine(AppPaths.CacheDirectory, "benchmark-" + Guid.NewGuid().ToString("N")[..8]);

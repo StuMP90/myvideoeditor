@@ -91,11 +91,12 @@ public class ResourceLimitsTests
         Assert.Equal(UpscaleKind.Onnx, Converter.EngineFor(cpu));
         var gpu = cpu with { Limits = new ResourceLimits(Device: AiDevice.Gpu) };
         // On Linux the graphics card means the Vulkan program, when it's installed; otherwise ONNX on the CPU.
-        Assert.Equal(Converter.VulkanAnimationAvailable ? UpscaleKind.AiFrames : UpscaleKind.Onnx, Converter.EngineFor(gpu));
+        var vulkan = Converter.VulkanAvailable(UpscaleMethods.Get(ScaleAlgorithm.AiAnimation));
+        Assert.Equal(vulkan ? UpscaleKind.AiFrames : UpscaleKind.Onnx, Converter.EngineFor(gpu));
         // Other ONNX methods have no Vulkan alternative.
         Assert.Equal(UpscaleKind.Onnx, Converter.EngineFor(gpu with { Algorithm = ScaleAlgorithm.ArtCnn }));
 
-        if (!Converter.VulkanAnimationAvailable)
+        if (!vulkan)
             return;
         var source = await TestMedia.PatternAsync(0.2, 64, 48);
         var output = Path.Combine(TestMedia.NewOutputDirectory(), "vulkan.mp4");

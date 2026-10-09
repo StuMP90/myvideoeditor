@@ -1,12 +1,11 @@
 {
-  "_comment": "Optional upscaler components: pinned downloads (exact file, size and SHA-256). Read by the app (UpscalerComponents) and by packaging/build-msix.ps1, which bundles the 'bundleInMsix' ones into the Windows package. Licence texts for bundled ones: tools/notices/upscalers/<id>.txt.",
+  "_comment": "Optional upscaler components: pinned downloads (exact file, size and SHA-256). Read by the app (UpscalerComponents). The Real-ESRGAN and Real-CUGAN models run through ONNX Runtime (bundled); their Vulkan programs are optional Linux downloads for running them on the graphics card. None are bundled: each download carries its own licence.",
   "components": [
     {
       "id": "anime4k",
       "label": "Anime4K shaders",
       "licence": "MIT (bloc97/Anime4K)",
       "homepage": "https://github.com/bloc97/Anime4K",
-      "bundleInMsix": false,
       "downloads": {
         "any": {
           "url": "https://github.com/bloc97/Anime4K/releases/download/v4.0.1/Anime4K_v4.0.zip",
@@ -17,39 +16,27 @@
     },
     {
       "id": "realesrgan",
-      "label": "Real-ESRGAN",
+      "label": "Real-ESRGAN (Vulkan program, Linux)",
       "licence": "MIT (program), BSD-3-Clause (models)",
       "homepage": "https://github.com/xinntao/Real-ESRGAN",
-      "bundleInMsix": true,
       "downloads": {
         "linux-x64": {
           "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip",
           "size": 46931474,
           "sha256": "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96"
-        },
-        "win-x64": {
-          "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
-          "size": 45474481,
-          "sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d"
         }
       }
     },
     {
       "id": "realcugan",
-      "label": "Real-CUGAN",
+      "label": "Real-CUGAN (Vulkan program, Linux)",
       "licence": "MIT (program and models)",
       "homepage": "https://github.com/nihui/realcugan-ncnn-vulkan",
-      "bundleInMsix": true,
       "downloads": {
         "linux-x64": {
           "url": "https://github.com/nihui/realcugan-ncnn-vulkan/releases/download/20220728/realcugan-ncnn-vulkan-20220728-ubuntu.zip",
           "size": 46704187,
           "sha256": "d745174bd04c0232c89d935b74799311008fda06bea4195f61be5f0f3cc087cb"
-        },
-        "win-x64": {
-          "url": "https://github.com/nihui/realcugan-ncnn-vulkan/releases/download/20220728/realcugan-ncnn-vulkan-20220728-windows.zip",
-          "size": 45977449,
-          "sha256": "c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01"
         }
       }
     }

@@ -127,7 +127,7 @@ jobs:
         run: >
           ./packaging/build-msix.ps1
           -Version "${{ needs.version.outputs.msix_version }}"
-          -Architecture x64,arm64
+          -Architecture x64
           -IdentityName "${{ vars.MSIX_IDENTITY_NAME || 'myvideoeditor.dev' }}"
           -Publisher "${{ vars.MSIX_PUBLISHER || 'CN=myvideoeditor-dev' }}"
           -PublisherDisplayName "${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'MyVideoEditor developer' }}"

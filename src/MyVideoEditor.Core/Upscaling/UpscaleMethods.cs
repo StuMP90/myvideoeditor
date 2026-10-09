@@ -33,8 +33,17 @@ public sealed record UpscaleMethod(
     ContentType? BestFor,
     int Quality,
     OnnxModel? OnnxModel = null,
-    bool IsAi = false)
+    bool IsAi = false,
+    UpscalerComponent? VulkanAlternative = null,
+    IReadOnlyList<OnnxModel>? OnnxScales = null)
 {
+    /// <summary>
+    /// The ONNX model for enlarging by <paramref name="needed"/>: with a model per scale, the smallest
+    /// that reaches it (the rest is Lanczos), otherwise the method's one model.
+    /// </summary>
+    public OnnxModel? OnnxModelFor(double needed) =>
+        OnnxScales is { Count: > 0 } scales ? scales.FirstOrDefault(m => m.Scale >= needed - 0.01) ?? scales[^1] : OnnxModel;
+
     /// <summary>Whether this computer can run it at all (GPU, platform, ffmpeg features).</summary>
     public string? Unavailable
     {
@@ -43,7 +52,8 @@ public sealed record UpscaleMethod(
             if (Kind == UpscaleKind.Cpu)
                 return null;
             if (Kind == UpscaleKind.Onnx)
-                return OnnxModel!.IsPresent ? null : $"The {OnnxModel.File} model is missing from this installation.";
+                return (OnnxScales ?? [OnnxModel!]).FirstOrDefault(m => !m.IsPresent) is { } missing
+                    ? $"The {missing.File} model is missing from this installation." : null;
             if (Component is { IsSupportedHere: false })
                 return $"Not available for {UpscalerComponents.RuntimeId}.";
             if (VulkanDevices.Best == null)
@@ -77,17 +87,20 @@ public static class UpscaleMethods
         new(ScaleAlgorithm.AiAnimation, "AI: animation and screen (Real-ESRGAN)",
             "Real-ESRGAN's video model: clean, sharp lines and flat colours. Best for animation, cartoons and screen recordings. " +
             "Runs on the CPU (about a second per frame), or a graphics card on Windows.",
-            UpscaleKind.Onnx, null, ContentType.Animation, 6, OnnxModel.RealEsrganAnimation, IsAi: true),
+            UpscaleKind.Onnx, null, ContentType.Animation, 6, OnnxModel.RealEsrganAnimation, IsAi: true, VulkanAlternative: UpscalerComponents.RealEsrgan),
         new(ScaleAlgorithm.AiGeneral, "AI: realistic detail (Real-ESRGAN general)",
             "Real-ESRGAN's compact general model: adds crisp, realistic detail to camera footage. Invents some texture; " +
             "lower the AI strength to keep more of the real picture. Runs on the CPU (a few seconds per frame), or a graphics card on Windows.",
             UpscaleKind.Onnx, null, ContentType.Camera, 6, OnnxModel.RealEsrganGeneral, IsAi: true),
         new(ScaleAlgorithm.AiAnime, "AI: anime, strongest (Real-CUGAN)",
-            "Real-CUGAN: the strongest clean-up for anime. Smooths camera footage into a painted look, so use it for animation only. Very slow without a dedicated graphics card.",
-            UpscaleKind.AiFrames, UpscalerComponents.RealCugan, ContentType.Animation, 7, IsAi: true),
+            "Real-CUGAN: the strongest clean-up for anime. Smooths camera footage into a painted look, so use it for animation only. " +
+            "Runs on the CPU (a few seconds per frame), or a graphics card on Windows.",
+            UpscaleKind.Onnx, null, ContentType.Animation, 7, OnnxModel.RealCugan2x, IsAi: true, VulkanAlternative: UpscalerComponents.RealCugan,
+            OnnxScales: [OnnxModel.RealCugan2x, OnnxModel.RealCugan3x, OnnxModel.RealCugan4x]),
         new(ScaleAlgorithm.AiPhoto, "AI: photo detail (Real-ESRGAN)",
-            "Real-ESRGAN x4plus: invents realistic texture for camera footage. Very slow: practical only on a dedicated (gaming) graphics card.",
-            UpscaleKind.AiFrames, UpscalerComponents.RealEsrgan, ContentType.Camera, 7, IsAi: true),
+            "Real-ESRGAN x4plus, the largest model: invents realistic texture for camera footage. Slow: tens of seconds per frame on a CPU, " +
+            "much faster on a dedicated graphics card (Windows).",
+            UpscaleKind.Onnx, null, ContentType.Camera, 7, OnnxModel.RealEsrganX4Plus, IsAi: true, VulkanAlternative: UpscalerComponents.RealEsrgan),
     ];
 
     public static UpscaleMethod Get(ScaleAlgorithm algorithm) => All.First(m => m.Algorithm == algorithm);

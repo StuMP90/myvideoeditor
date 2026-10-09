@@ -76,8 +76,8 @@ the moment worth checking.
 | **Cleaner lines** (Anime4K shaders via libplacebo) | any Vulkan GPU | animation, screen recordings | ~0.1 s per frame |
 | **AI: animation and screen** (Real-ESRGAN animevideov3, ONNX) | CPU; graphics card on Windows | animation, screen recordings | ~1 s per frame |
 | **AI: realistic detail** (Real-ESRGAN general-x4v3, ONNX) | CPU; graphics card on Windows | camera footage | ~2 s per frame |
-| **AI: anime, strongest** (Real-CUGAN, ncnn) | Vulkan GPU | anime | ~8 s per frame |
-| **AI: photo detail** (Real-ESRGAN x4plus, ncnn) | dedicated (gaming) GPU | camera footage | ~60 s per frame |
+| **AI: anime, strongest** (Real-CUGAN, ONNX) | CPU; graphics card on Windows | anime | ~1.5 s per frame |
+| **AI: photo detail** (Real-ESRGAN x4plus, ONNX) | CPU; graphics card on Windows; dedicated GPU recommended | camera footage | ~16 s per frame |
 
 - **ArtCNN** is trained to recreate real detail rather than invent it. Measured against the real
   720p frames of a camera clip, it was the most faithful method tested (SSIM 0.9911, PSNR 46.8 dB,
@@ -87,26 +87,42 @@ the moment worth checking.
   same frame. GAN-trained models such as Real-ESRGAN invent texture and can paint over real detail;
   30–50% keeps most of the real picture while sharpening edges (on the camera clip, 30% raised
   fidelity from 37.9 to 44.8 dB).
-- **ONNX models** (ArtCNN and the two compact Real-ESRGAN models, 7.6 MB together) ship with the app
+- **ONNX models** (ArtCNN, the two compact Real-ESRGAN models and Real-CUGAN's three, 15.6 MB together) ship with the app
   in a `models` folder and run in-process through ONNX Runtime: on the CPU anywhere, and on Windows
   on any DirectX 12 graphics card through DirectML, falling back to the CPU if that isn't possible.
   `MYVIDEOEDITOR_ONNX_DEVICE=cpu` forces the CPU. On integrated graphics, ONNX Runtime's CPU kernels
   can be faster than the GPU (ArtCNN ran 8–150× faster on the Iris Xe laptop's CPU than as a GPU
   shader). Frames are processed in overlapping tiles, so memory stays bounded at any size. The
-  Real-ESRGAN models were converted from the official weights by `tools/convert-realesrgan-onnx.py`
-  (checksums pinned); ONNX Runtime uses the DirectML build on Windows and the CPU build elsewhere,
+  Real-ESRGAN models were converted from the official weights by `tools/convert-realesrgan-onnx.py`,
+  and Real-CUGAN's by `tools/convert-realcugan-onnx.py` (checksums pinned); ONNX Runtime uses the DirectML build on Windows and the CPU build elsewhere,
   both 1.24.4 (the last DirectML release; Microsoft now steers new work to Windows ML).
-- **Windows (MSIX)** also includes the ncnn AI programs (Real-ESRGAN x4plus and Real-CUGAN, about
-  90 MB): the Store restricts apps that download and run programs, and Smart App Control blocks
-  unsigned downloaded programs, whereas inside the package they're signed with the app. The small
-  Anime4K shaders download on first use. **Linux** downloads the ncnn programs on first use (after
-  asking).
+- **x4plus** is the largest model (RRDBNet, 16.7M parameters). Its weights are stored at half
+  precision (33.7 MB instead of 67 MB) and converted back as it loads, so it computes at full
+  precision; the output differs from the full-size file by under one 8-bit level, and matches the
+  official Real-ESRGAN program (a test compares them). On the Iris Xe laptop it runs about 4× faster
+  on the CPU through ONNX than through the Vulkan program on the integrated graphics.
+- **Real-CUGAN** has a model per scale (2×, 3×, 4×, the "conservative" ones, which keep the most
+  detail); the smallest that reaches the size is used, then Lanczos for the rest. They're converted
+  from bilibili's updated weights, and match the official PyTorch code to within one 8-bit level
+  (half-precision storage, 2.6–2.8 MB each). The Real-CUGAN Vulkan program ships the original 2022
+  weights, so the two differ slightly (SSIM 0.97–0.99); a test compares them. Its
+  squeeze-and-excitation blocks average over the whole input, so tiles change the result very
+  slightly (about 50 dB PSNR against an untiled frame, invisible; the program tiles too), but whole
+  frames would need gigabytes (15 GB for 1080p at 2×). On the Iris Xe laptop it runs 2–4× faster on
+  the CPU than the Vulkan program on the integrated graphics.
+- If a model fails on the graphics card (almost always running out of memory), it's retried with
+  smaller tiles, then finished on the CPU, rather than failing.
+- **Windows (MSIX)** runs every AI model in-process (DirectML or CPU), so the package contains no
+  separate AI programs, and the Windows app never downloads one (the Store restricts apps that
+  download and run programs, and Smart App Control blocks unsigned downloaded programs). The small
+  Anime4K shaders (data, not code) download on first use. **Linux** can optionally download the
+  Real-ESRGAN and Real-CUGAN Vulkan programs (after asking), to run those models on the graphics
+  card (Convert tab → CPU and heat, with the method selected).
 - Every downloadable component is pinned to an exact file and SHA-256 checksum in
-  `src/MyVideoEditor.Core/Upscaling/components.json`, which both the app and
-  `packaging/build-msix.ps1` read. Downloads go to the data folder under `tools/`. Licences: ArtCNN
-  MIT, Anime4K MIT, Real-ESRGAN MIT (program) and BSD-3-Clause (models), Real-CUGAN MIT, ncnn
-  BSD-3-Clause, ONNX Runtime MIT, DirectML Microsoft redistributable licence; the texts go into
-  `THIRD-PARTY-NOTICES.txt`.
+  `src/MyVideoEditor.Core/Upscaling/components.json`. Downloads go to the data folder under
+  `tools/`. Licences: ArtCNN MIT, Anime4K MIT, Real-ESRGAN MIT (program) and BSD-3-Clause (models),
+  Real-CUGAN MIT, ncnn BSD-3-Clause, ONNX Runtime MIT, DirectML Microsoft redistributable licence;
+  the texts of everything shipped go into `THIRD-PARTY-NOTICES.txt`.
 - Vulkan GPUs (for Anime4K and the ncnn programs) are chosen dedicated first, then integrated;
   software renderers (llvmpipe) are never used for real work.
 - The ncnn AI programs work on frames in batches sized to the free disk space, piped straight back
@@ -119,8 +135,8 @@ the moment worth checking.
   by default) for every process and thread a conversion uses, so other programs come first (on
   Linux the ONNX worker threads are created on a lowered thread so they inherit it; on Windows the
   app's priority class is lowered while converting); and **AI runs on** Automatic / CPU / graphics
-  card. On Linux, "graphics card" runs the animation model through the Real-ESRGAN Vulkan program
-  instead of ONNX on the CPU; Automatic uses whichever the speed test found faster.
+  card. On Linux, "graphics card" runs the Real-ESRGAN and Real-CUGAN models through their Vulkan
+  programs (when downloaded) instead of ONNX on the CPU; Automatic uses whichever the speed test found faster.
 - **Convert again** (per file) and **Convert all again** redo conversions with the current
   settings; earlier results are kept, as outputs are named after their settings
   (`clip-1280x720-ArtCNN.mp4`, `clip-1080p-AI-general-40%.mp4`, numbered if repeated), and each file
@@ -241,8 +257,8 @@ Version numbers come from git tags, as in zSSH: push a tag like `v1.0.7` and the
 (`.github/workflows/build.yml`) runs the tests, builds that version and creates the GitHub release
 with the binaries attached:
 
-- `MyVideoEditor_1.0.7.0_x64.msix` and `MyVideoEditor_1.0.7.0_arm64.msix` (about 230 and 200 MB,
-  with FFmpeg and the AI upscalers; Windows on Arm runs the x64 upscalers under emulation)
+- `MyVideoEditor_1.0.7.0_x64.msix` (x64 only; about 210 MB with FFmpeg, ONNX Runtime with DirectML,
+  and the models)
 - `myvideoeditor-1.0.7-linux-x64.tar.gz`
 
 The tag must be `vMAJOR.MINOR.PATCH`. Other pushes build `0.0.<run number>` as workflow artifacts
@@ -254,7 +270,7 @@ packaging/publish-linux.sh 0.1.0 x64      # → artifacts/linux/myvideoeditor-0.
 
 ```powershell
 # Windows, with the Windows 10/11 SDK. Store submission (the Store signs it):
-./packaging/build-msix.ps1 -Version 1.0.0.0 -Architecture x64,arm64 `
+./packaging/build-msix.ps1 -Version 1.0.0.0 `
     -IdentityName "<Package/Identity/Name>" -Publisher "<Package/Identity/Publisher>" `
     -PublisherDisplayName "<PublisherDisplayName>"
 # Local sideload test: ./packaging/build-msix.ps1 -SelfSign

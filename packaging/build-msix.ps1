@@ -1,12 +1,11 @@
 <#
 .SYNOPSIS
-  Builds an MSIX package of MyVideoEditor, with FFmpeg and the AI upscalers (Real-ESRGAN,
-  Real-CUGAN) included (Windows only; needs the Windows 10/11 SDK for makeappx.exe).
+  Builds an x64 MSIX package of MyVideoEditor, with FFmpeg included (Windows only; needs the
+  Windows 10/11 SDK for makeappx.exe).
 
-  The AI upscalers are bundled rather than downloaded by the app, because Store policy limits
-  apps that download and run code, and Smart App Control blocks unsigned downloaded programs;
-  inside the package they're signed by the Store with the app. Which files to bundle, and their
-  checksums, come from src/MyVideoEditor.Core/Upscaling/components.json (shared with the app).
+  The AI upscaling models (ArtCNN, Real-ESRGAN, Real-CUGAN) run in the app through ONNX Runtime
+  (DirectML), so they're part of the app itself: the package has no separate AI programs, and the
+  Windows app never downloads any (Store policy limits apps that download and run code).
 
 .EXAMPLE
   # Store submission (unsigned; the Store signs it). Use the identity from Partner Center.
@@ -19,7 +18,7 @@
 #>
 param(
     [string]$Version = "0.1.0.0",
-    [ValidateSet("x64", "arm64")]
+    [ValidateSet("x64")]
     [string[]]$Architecture = @("x64"),
     [string]$IdentityName = "myvideoeditor.dev",
     [string]$Publisher = "CN=myvideoeditor-dev",
@@ -49,7 +48,7 @@ function Find-SdkTool([string]$name) {
 # FFmpeg: a GPL shared build from BtbN/FFmpeg-Builds (see tools/fetch-ffmpeg.sh for the Linux side),
 # put in <layout>\ffmpeg\bin with its DLLs, plus its licence and where its source is.
 function Get-Ffmpeg([string]$arch, [string]$destination) {
-    $name = if ($arch -eq "arm64") { "winarm64" } else { "win64" }
+    $name = "win64"
     $file = "ffmpeg-n$FfmpegSeries-latest-$name-gpl-shared-$FfmpegSeries"
     $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$file.zip"
     $work = Join-Path ([System.IO.Path]::GetTempPath()) ("ffmpeg-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -86,34 +85,6 @@ years after this release.
     }
 }
 
-# AI upscalers marked "bundleInMsix" in components.json: downloaded once (the Windows x64 build;
-# Windows on Arm runs it under emulation), checked against the pinned SHA-256, and unpacked into
-# <layout>\upscalers\<id> with the ".installed" marker the app looks for.
-$components = (Get-Content (Join-Path $root "src/MyVideoEditor.Core/Upscaling/components.json") -Raw | ConvertFrom-Json).components |
-    Where-Object { $_.bundleInMsix }
-$downloadCache = Join-Path ([System.IO.Path]::GetTempPath()) "myvideoeditor-upscalers"
-New-Item -ItemType Directory -Force -Path $downloadCache | Out-Null
-
-function Add-Upscalers([string]$destination) {
-    foreach ($component in $components) {
-        $download = $component.downloads.'win-x64'
-        if (-not $download) { throw "components.json has no win-x64 download for $($component.id)." }
-        $file = Join-Path $downloadCache ([System.IO.Path]::GetFileName(([uri]$download.url).AbsolutePath))
-        if (-not (Test-Path $file) -or (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $download.sha256) {
-            Write-Host "Downloading $($download.url)"
-            Invoke-WebRequest -Uri $download.url -OutFile $file
-        }
-        $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($hash -ne $download.sha256) { throw "$($component.id): checksum mismatch ($hash, expected $($download.sha256))." }
-        $target = Join-Path $destination $component.id
-        Expand-Archive $file -DestinationPath $target -Force
-        # The release zips include demo pictures and a sample video the app doesn't need.
-        Get-ChildItem $target -Recurse -Include *.jpg, *.png, *.mp4 | Remove-Item
-        Set-Content -NoNewline -Encoding ascii -Path (Join-Path $target ".installed") -Value $download.sha256
-        Write-Host "Bundled $($component.label) ($($component.licence))"
-    }
-}
-
 $makeappx = Find-SdkTool "makeappx.exe"
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutputDir) | Out-Null
 $packages = @()
@@ -129,13 +100,12 @@ foreach ($arch in $Architecture) {
 
     Get-Ffmpeg $arch (Join-Path $layout "ffmpeg")
     & (Join-Path $layout "ffmpeg\bin\ffmpeg.exe") -hide_banner -version | Select-Object -First 1
-    Add-Upscalers (Join-Path $layout "upscalers")
 
     # Licence texts for everything shipped (shown in the app under Help → Licences).
     # "python" first: on Windows "python3" can be the Microsoft Store placeholder.
     $python = Get-Command python, py, python3 -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $python) { throw "Python 3 is needed to generate THIRD-PARTY-NOTICES.txt." }
-    & $python.Source (Join-Path $root "tools/generate-third-party-notices.py") --rid "win-$arch" --ffmpeg (Join-Path $layout "ffmpeg") --upscalers (Join-Path $layout "upscalers") --output (Join-Path $layout "THIRD-PARTY-NOTICES.txt")
+    & $python.Source (Join-Path $root "tools/generate-third-party-notices.py") --rid "win-$arch" --ffmpeg (Join-Path $layout "ffmpeg") --output (Join-Path $layout "THIRD-PARTY-NOTICES.txt")
     if ($LASTEXITCODE -ne 0) { throw "Generating third-party notices failed" }
     Copy-Item (Join-Path $root "LICENSE") (Join-Path $layout "LICENSE.txt")
 

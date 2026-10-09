@@ -38,8 +38,8 @@ public sealed class AiUpscaleJob
         var method = UpscaleMethods.Get(settings.Algorithm);
         if (method.Kind != UpscaleKind.AiFrames && Converter.EngineFor(settings) != UpscaleKind.AiFrames && ProgramOverride == null)
             throw new ArgumentException($"{method.Label} doesn't run as an AI program.");
-        // The animation model's Vulkan program is Real-ESRGAN's.
-        var component = method.Component ?? UpscalerComponents.RealEsrgan;
+        // A Real-ESRGAN ONNX model's Vulkan alternative is the Real-ESRGAN program.
+        var component = method.Component ?? method.VulkanAlternative ?? UpscalerComponents.RealEsrgan;
         var program = ProgramOverride ?? UpscalerComponents.ProgramPath(component)
             ?? throw new InvalidOperationException($"{component.Label} isn't installed.");
         var gpu = VulkanDevices.Best;

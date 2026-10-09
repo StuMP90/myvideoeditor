@@ -205,6 +205,8 @@
               <ComboBox Grid.Column="1" ItemsSource="{Binding AiDeviceOptions}" SelectedIndex="{Binding AiDeviceIndex}" HorizontalAlignment="Stretch" />
             </Grid>
             <TextBlock Text="{Binding AiDeviceNote}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
+            <Button Classes="tool" Content="{Binding VulkanDownloadLabel}" Command="{Binding DownloadVulkanProgramCommand}"
+                    IsVisible="{Binding OffersVulkanDownload}" IsEnabled="{Binding !IsBusy}" />
 
             <TextBlock Text="SAVE TO" Classes="section" />
             <TextBlock Text="{Binding OutputFolderText}" TextWrapping="Wrap" FontSize="12" />

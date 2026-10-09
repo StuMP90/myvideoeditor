@@ -36,7 +36,8 @@ public sealed partial class UpscaleOptionViewModel : ObservableObject
             {
                 UpscaleKind.Cpu => "CPU",
                 UpscaleKind.GpuShader => "GPU",
-                UpscaleKind.Onnx => OperatingSystem.IsWindows() ? "CPU or graphics card" : "CPU",
+                UpscaleKind.Onnx => OperatingSystem.IsWindows() || MyVideoEditor.Core.Conversion.Converter.VulkanAvailable(Method)
+                    ? "CPU or graphics card" : "CPU",
                 _ => "graphics card",
             } + (Method.IsAi ? ", AI" : ""));
             if (Method.NeedsDownload)

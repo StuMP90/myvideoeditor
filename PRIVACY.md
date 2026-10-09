@@ -1,6 +1,6 @@
 # MyVideoEditor privacy policy
 
-_Last updated: 8 October 2026_
+_Last updated: 9 October 2026_
 
 MyVideoEditor is a video editor, converter and screen recorder. It is developed by Stuart
 Millington and released as open source under the MIT licence. This policy covers the MyVideoEditor
@@ -15,11 +15,11 @@ from the app.
 
 ## Optional upscaler downloads
 
-Some upscaling methods in the Convert tab need a free component that isn't included in the app:
-GPU shaders, and on Linux the Real-ESRGAN and Real-CUGAN AI upscalers (the Windows version includes
-those). It is downloaded only when you
-choose such a method (or the speed test offers it) and you confirm, directly from the component's own release page on GitHub
-(github.com), where GitHub's privacy statement applies:
+Some upscaling options in the Convert tab need a free component that isn't included in the app:
+GPU shaders, and on Linux the optional Vulkan programs that run the Real-ESRGAN and Real-CUGAN AI
+models on the graphics card (the AI models themselves are included). A component is downloaded
+only when you choose it and confirm, directly from its own release page on GitHub (github.com),
+where GitHub's privacy statement applies:
 <https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement>. Nothing
 about you or your videos is sent: it's an ordinary file download, and each file is checked against
 a fixed checksum before it's used. These upscalers then run entirely on your computer; your videos

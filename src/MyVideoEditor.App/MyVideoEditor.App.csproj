@@ -31,19 +31,24 @@
   <!--
     DirectML.dll for ONNX Runtime's DirectML build (Windows builds; see MyVideoEditor.Core.csproj).
     The Microsoft.AI.DirectML package only copies it into C++ projects, so it's copied here for the
-    architecture being built (or this computer's, for a plain "dotnet run").
+    x64 Windows build (and a plain "dotnet run" on Windows).
   -->
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(UseDirectML)' == 'true'">
-    <DirectMLArch Condition="'$(RuntimeIdentifier)' == 'win-x64'">x64-win</DirectMLArch>
-    <DirectMLArch Condition="'$(RuntimeIdentifier)' == 'win-arm64'">arm64-win</DirectMLArch>
-    <DirectMLArch Condition="'$(RuntimeIdentifier)' == 'win-x86'">x86-win</DirectMLArch>
-    <DirectMLArch Condition="'$(DirectMLArch)' == '' and '$(RuntimeIdentifier)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">arm64-win</DirectMLArch>
-    <DirectMLArch Condition="'$(DirectMLArch)' == '' and '$(RuntimeIdentifier)' == ''">x64-win</DirectMLArch>
+    <!-- x64 only (the Windows build is x64). -->
+    <DirectMLArch Condition="'$(RuntimeIdentifier)' == 'win-x64' or '$(RuntimeIdentifier)' == ''">x64-win</DirectMLArch>
   </PropertyGroup>
   <ItemGroup Condition="'$(DirectMLArch)' != ''">
     <None Include="$(NuGetPackageRoot)microsoft.ai.directml/1.15.4/bin/$(DirectMLArch)/DirectML.dll"
           Link="DirectML.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
+
+  <!-- onnxruntime.lib is a C++ import library in the ONNX Runtime packages, only for linking native code: never used at run time. -->
+  <Target Name="DropOnnxRuntimeLinkerFile" AfterTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <NativeCopyLocalItems Remove="@(NativeCopyLocalItems)" Condition="'%(Extension)' == '.lib'" />
+      <RuntimeTargetsCopyLocalItems Remove="@(RuntimeTargetsCopyLocalItems)" Condition="'%(Extension)' == '.lib'" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\MyVideoEditor.Core\MyVideoEditor.Core.csproj" />

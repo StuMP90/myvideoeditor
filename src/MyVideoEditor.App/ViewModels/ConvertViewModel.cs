@@ -215,14 +215,52 @@ public sealed partial class ConvertViewModel : ObservableObject
             _settings.ConvertAiDevice = AiDeviceKeys[Math.Clamp(value, 0, AiDeviceKeys.Length - 1)];
             _settings.Save();
             OnPropertyChanged();
+            OnPropertyChanged(nameof(OffersVulkanDownload));
             ClearEstimates();
         }
     }
 
     public string AiDeviceNote => OperatingSystem.IsWindows()
-        ? "Graphics card: DirectML, for ArtCNN and the Real-ESRGAN ONNX models (the CPU is used if the card can't run them). Real-CUGAN and AI: photo detail always use the graphics card."
-        : "On Linux the graphics card applies to AI: animation and screen, through the Real-ESRGAN Vulkan program (download it with AI: photo detail). " +
-          "Automatic uses whichever the speed test found faster. Real-CUGAN and AI: photo detail always use the graphics card; other methods use the CPU.";
+        ? "Graphics card: ArtCNN and the Real-ESRGAN and Real-CUGAN models run on it through DirectML (moving to smaller pieces, then the CPU, if it runs out of memory)."
+        : "On Linux the graphics card applies to the Real-ESRGAN and Real-CUGAN models, through their Vulkan programs (download below, with the method selected). " +
+          "Automatic uses whichever the speed test found faster. Other methods use the CPU.";
+
+    /// <summary>The selected method's optional Vulkan program (Linux), for running its models on the graphics card.</summary>
+    private UpscalerComponent? VulkanProgram => OperatingSystem.IsWindows() ? null : SelectedScaling.Method.VulkanAlternative;
+
+    public bool OffersVulkanDownload =>
+        VulkanProgram is { IsSupportedHere: true } c && AiDeviceIndex != 1 && VulkanDevices.Best != null && !UpscalerComponents.IsInstalled(c);
+
+    public string VulkanDownloadLabel => VulkanProgram is { } c ? $"Download {c.Label} ({Shell.FormatSize(c.ForThisComputer?.Size ?? 0)})" : "";
+
+    [RelayCommand]
+    private async Task DownloadVulkanProgram()
+    {
+        if (VulkanProgram is not { } c)
+            return;
+        var models = c == UpscalerComponents.RealCugan ? "Real-CUGAN" : "Real-ESRGAN";
+        if (!await _dialogs.ConfirmAsync("Download " + c.Label,
+                $"This runs the {models} models on the graphics card through Vulkan ({Shell.FormatSize(c.ForThisComputer?.Size ?? 0)}; free, runs on this computer).\n\n" +
+                $"Licence: {c.Licence}\n{c.Homepage}\n\nDownload it now?", "Download"))
+            return;
+        IsBusy = true;
+        try
+        {
+            await UpscalerComponents.InstallAsync(c, new Progress<double>(p => Status = $"Downloading {c.Label}… {p * 100:0}%"));
+            Status = $"{c.Label} is installed.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Couldn't download {c.Label}: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+            OnPropertyChanged(nameof(OffersVulkanDownload));
+            foreach (var o in Scalings)
+                o.Refresh();
+        }
+    }
 
     /// <summary>The limits from the settings above.</summary>
     internal ResourceLimits Limits => new(
@@ -239,6 +277,8 @@ public sealed partial class ConvertViewModel : ObservableObject
     partial void OnSelectedScalingChanged(UpscaleOptionViewModel value)
     {
         OnPropertyChanged(nameof(ShowsAiStrength));
+        OnPropertyChanged(nameof(OffersVulkanDownload));
+        OnPropertyChanged(nameof(VulkanDownloadLabel));
         _settings.ConvertScaling = value.Method.Algorithm.ToString();
         _settings.Save();
     }

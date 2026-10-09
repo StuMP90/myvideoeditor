@@ -97,7 +97,7 @@ public sealed class Converter
         using var priority = settings.Limits.LowerAppOnWindows();
         try
         {
-            var kind = EngineFor(settings);
+            var kind = EngineOverride ?? EngineFor(settings);
             if (kind == UpscaleKind.AiFrames)
             {
                 await AiJob.RunAsync(info, partial, settings, progress, cancellationToken).ConfigureAwait(false);
@@ -124,33 +124,36 @@ public sealed class Converter
 
     internal OnnxUpscaleJob OnnxJob { get; init; } = new();
 
+    /// <summary>Runs upscaling methods with this engine instead of their own (tests: the AI program pipeline with a stand-in).</summary>
+    internal UpscaleKind? EngineOverride { get; init; }
+
     /// <summary>
-    /// How a method runs here. Usually its own kind; the exception is the animation AI model on
-    /// Linux, which can run either in ONNX Runtime on the CPU or in the Real-ESRGAN Vulkan program
-    /// on the graphics card (when installed), following <see cref="ResourceLimits.Device"/>.
+    /// How a method runs here. Usually its own kind; the exception is a Real-ESRGAN or Real-CUGAN model
+    /// on Linux, which can run either in ONNX Runtime on the CPU or in its Vulkan program on the
+    /// graphics card (when installed), following <see cref="ResourceLimits.Device"/>. (Windows runs
+    /// them on the graphics card through DirectML instead.)
     /// </summary>
     public static UpscaleKind EngineFor(ConversionSettings s)
     {
         var method = UpscaleMethods.Get(s.Algorithm);
-        if (s.Algorithm != ScaleAlgorithm.AiAnimation || OperatingSystem.IsWindows() || !UseVulkanForAnimation(s.Limits.Device))
-            return method.Kind;
-        return UpscaleKind.AiFrames;
+        return method.VulkanAlternative != null && UseVulkan(s.Algorithm, s.Limits.Device) ? UpscaleKind.AiFrames : method.Kind;
     }
 
-    /// <summary>Whether the animation model should use the Vulkan program (needs it installed and a usable GPU).</summary>
-    public static bool UseVulkanForAnimation(AiDevice device)
+    /// <summary>Whether a model with a Vulkan alternative should use it (needs it installed and a usable GPU).</summary>
+    public static bool UseVulkan(ScaleAlgorithm algorithm, AiDevice device)
     {
-        if (device == AiDevice.Cpu || !VulkanAnimationAvailable)
+        if (device == AiDevice.Cpu || !VulkanAvailable(UpscaleMethods.Get(algorithm)))
             return false;
         if (device == AiDevice.Gpu)
             return true;
         // Automatic: what the speed test found faster; not measured yet, a dedicated card is usually faster than the CPU.
-        return EnginePreferences.Get(ScaleAlgorithm.AiAnimation) ?? VulkanDevices.Best!.Kind == GpuKind.Discrete;
+        return EnginePreferences.Get(algorithm) ?? VulkanDevices.Best!.Kind == GpuKind.Discrete;
     }
 
-    /// <summary>The Real-ESRGAN Vulkan program is installed and there's a GPU for it (Linux; Windows uses DirectML instead).</summary>
-    public static bool VulkanAnimationAvailable =>
-        !OperatingSystem.IsWindows() && UpscalerComponents.ProgramPath(UpscalerComponents.RealEsrgan) != null && VulkanDevices.Best != null;
+    /// <summary>The method's Vulkan program is installed and there's a GPU for it (Linux; Windows uses DirectML instead).</summary>
+    public static bool VulkanAvailable(UpscaleMethod method) =>
+        !OperatingSystem.IsWindows() && method.VulkanAlternative is { } program
+        && UpscalerComponents.ProgramPath(program) != null && VulkanDevices.Best != null;
 
     /// <summary>
     /// GPU and AI methods only make sense when the picture gets bigger and is re-encoded; otherwise
@@ -315,7 +318,7 @@ public sealed class Converter
             TrimStart = at,
             TrimEnd = at + 1.5 / Math.Max(1, fps),
         });
-        var kind = EngineFor(s);
+        var kind = EngineOverride ?? EngineFor(s);
         if (kind == UpscaleKind.AiFrames)
             await AiJob.RunAsync(info, afterPng, s, null, cancellationToken).ConfigureAwait(false);
         else if (kind == UpscaleKind.Onnx)

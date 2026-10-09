@@ -13,7 +13,7 @@ namespace MyVideoEditor.Core.Upscaling;
 ///   ffmpeg (decode, raw frames) ──▶ model (CPU or DirectML) ──▶ ffmpeg (encode, see <see cref="UpscaleEncoder"/>)
 ///
 /// Brightness-only models (ArtCNN) get YUV frames and keep the source's colour values exactly;
-/// RGB models (Real-ESRGAN) get RGB converted with the source's own matrix. ArtCNN doubles the
+/// RGB models (Real-ESRGAN, Real-CUGAN) get RGB converted with the source's own matrix. ArtCNN doubles the
 /// size per pass, so it runs twice when more than 2× is needed; the encoder scales to the exact
 /// size. Decoding, upscaling and encoding run at the same time.
 /// </summary>
@@ -26,15 +26,16 @@ public sealed class OnnxUpscaleJob
     public async Task RunAsync(MediaInfo info, string output, ConversionSettings settings, IProgress<FfmpegProgress>? progress, CancellationToken cancellationToken)
     {
         var method = UpscaleMethods.Get(settings.Algorithm);
-        var model = method.OnnxModel ?? throw new ArgumentException($"{method.Label} isn't an ONNX method.");
+        var (srcW, srcH) = settings.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
+        var target = ScaledSize.For(srcW, srcH, settings.Width, settings.Height, settings.ResizeMode);
+        var needed = Math.Max((double)target.Width / srcW, (double)target.Height / srcH);
+        var model = method.OnnxModelFor(needed) ?? throw new ArgumentException($"{method.Label} isn't an ONNX method.");
         var color = ColorSpec.For(info);
         if (model.Channels == OnnxChannels.Rgb && color.IsHdr)
             throw new NotSupportedException($"{method.Label} works on standard (SDR) video; this video is HDR. Use Sharper detail or Lanczos.");
 
-        var (srcW, srcH) = settings.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
-        var target = ScaledSize.For(srcW, srcH, settings.Width, settings.Height, settings.ResizeMode);
-        var needed = Math.Max((double)target.Width / srcW, (double)target.Height / srcH);
-        var passes = model.Scale == 2 && needed > 2.05 ? 2 : 1;
+        // A 2x model alone (ArtCNN) runs twice for more than 2x; a model per scale picks the right one.
+        var passes = method.OnnxScales == null && model.Scale == 2 && needed > 2.05 ? 2 : 1;
         var factor = (int)Math.Pow(model.Scale, passes);
         var (outW, outH) = (srcW * factor, srcH * factor);
 
