@@ -54,7 +54,10 @@ Both include FFmpeg, so there's nothing else to install.
 A batch queue for files that don't need a timeline: change format; resize with **fit** (black
 bars), **fill** (crop) or **stretch**; upscale (below); change the frame rate; trim; rotate;
 deinterlace; remove the sound; or copy streams into a new container without re-encoding (fast and
-lossless). Originals are never changed.
+lossless). Originals are never changed. **Preview frame** converts one frame of the selected file
+with exactly the current settings and shows it against the original, with a draggable divider or
+side by side, zoomable to 100% and 200%, so methods can be compared before committing to a long
+conversion.
 
 ### Upscaling for every kind of PC
 

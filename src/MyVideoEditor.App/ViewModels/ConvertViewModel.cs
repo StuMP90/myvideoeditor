@@ -309,6 +309,146 @@ public sealed partial class ConvertViewModel : ObservableObject
         _settings.Save();
     }
 
+    // ---- before/after preview ------------------------------------------------------------------
+
+    /// <summary>The file the preview shows (the selected row of the queue).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PreviewDuration), nameof(CanPreview))]
+    private ConvertJobViewModel? _selectedJob;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PreviewTimeText))]
+    private double _previewTime;
+
+    [ObservableProperty]
+    private Avalonia.Media.Imaging.Bitmap? _previewBefore;
+
+    [ObservableProperty]
+    private Avalonia.Media.Imaging.Bitmap? _previewAfter;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanPreview))]
+    private bool _isPreviewing;
+
+    [ObservableProperty]
+    private string _previewText = "";
+
+    [ObservableProperty]
+    private bool _previewSideBySide;
+
+    /// <summary>0 = fit, 1 = 100%, 2 = 200%.</summary>
+    [ObservableProperty]
+    private int _previewZoom;
+
+    [ObservableProperty]
+    private bool _previewStale;
+
+    /// <summary>Shown over the picture while a preview renders ("Rendering… 12 s").</summary>
+    [ObservableProperty]
+    private string? _previewOverlay;
+
+    private CancellationTokenSource? _previewCts;
+
+    public IReadOnlyList<string> PreviewZooms { get; } = ["Fit", "100%", "200%"];
+    public double PreviewDuration => SelectedJob?.Info.Duration ?? 0;
+    public string PreviewTimeText => Timecode.Format(PreviewTime);
+    public bool CanPreview => SelectedJob is { Info.HasVideo: true } && !IsPreviewing;
+
+    partial void OnSelectedJobChanged(ConvertJobViewModel? value)
+    {
+        PreviewTime = (value?.Info.Duration ?? 0) / 2;
+        PreviewStale = PreviewAfter != null;
+    }
+
+    partial void OnPreviewTimeChanged(double value) => PreviewStale = PreviewAfter != null;
+
+    /// <summary>Any setting that changes the result makes the shown preview out of date.</summary>
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (PreviewAfter != null && e.PropertyName is nameof(SelectedScaling) or nameof(SizePreset) or nameof(CustomWidth) or nameof(CustomHeight)
+                or nameof(ResizeMode) or nameof(Rotate) or nameof(Deinterlace) or nameof(Format) or nameof(Quality))
+            PreviewStale = true;
+    }
+
+    /// <summary>Renders the frame at <see cref="PreviewTime"/> through the conversion as set up now, next to the original.</summary>
+    [RelayCommand]
+    private async Task Preview()
+    {
+        if (SelectedJob is not { } job)
+            return;
+        var (settings, error) = BuildSettings();
+        if (settings == null)
+        {
+            PreviewText = error ?? "";
+            return;
+        }
+        var method = UpscaleMethods.Get(Converter.Effective(job.Info, settings).Algorithm);
+        if (method.Unavailable is { } why)
+        {
+            PreviewText = $"{method.Label} can't run on this computer: {why}";
+            return;
+        }
+        if (!await EnsureDownloadedAsync(method, ask: true))
+            return;
+        IsPreviewing = true;
+        var time = PreviewTime;
+        PreviewText = method.Kind == UpscaleKind.AiFrames
+            ? $"Rendering with {method.Label}… AI upscaling takes seconds to minutes per frame, depending on the frame size and the graphics card."
+            : $"Rendering with {method.Label}…";
+        var dir = Path.Combine(AppPaths.CacheDirectory, "preview-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        _previewCts = new CancellationTokenSource();
+        // The old picture stays, dimmed, under a ticking "Rendering…", so it's never mistaken for the new one.
+        PreviewOverlay = $"Rendering with {method.Label}…";
+        var ticker = new Avalonia.Threading.DispatcherTimer(TimeSpan.FromSeconds(1), Avalonia.Threading.DispatcherPriority.Background,
+            (_, _) => PreviewOverlay = $"Rendering with {method.Label}… {watch.Elapsed.TotalSeconds:0} s");
+        ticker.Start();
+        try
+        {
+            var before = Path.Combine(dir, "before.png");
+            var after = Path.Combine(dir, "after.png");
+            await new Converter().RenderPreviewAsync(job.Info.Path, settings, time, before, after, _previewCts.Token);
+            PreviewBefore = LoadBitmap(before);
+            PreviewAfter = LoadBitmap(after);
+            // Settings or the frame changed while it rendered: it shows what was asked for then, not now.
+            PreviewStale = BuildSettings().Settings != settings || Math.Abs(PreviewTime - time) > 1e-6 || SelectedJob != job;
+            var (srcW, srcH) = settings.Rotate % 180 == 0 ? (job.Info.Width, job.Info.Height) : (job.Info.Height, job.Info.Width);
+            PreviewText = $"Original {srcW}×{srcH} (shown enlarged, unsmoothed) · converted {PreviewAfter.PixelSize.Width}×{PreviewAfter.PixelSize.Height} " +
+                          $"with {method.Label} · frame at {Timecode.Format(PreviewTime)} · took {watch.Elapsed.TotalSeconds:0.#} s";
+        }
+        catch (OperationCanceledException)
+        {
+            PreviewText = "Preview cancelled.";
+            PreviewStale = PreviewAfter != null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("convert", "Preview failed.", ex);
+            PreviewText = "Preview failed: " + (ex is FfmpegException fe ? fe.Message : ex.Message);
+            PreviewStale = PreviewAfter != null;
+        }
+        finally
+        {
+            ticker.Stop();
+            PreviewOverlay = null;
+            IsPreviewing = false;
+            _previewCts = null;
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>Stops a preview that's rendering (the AI program and ffmpeg are stopped too).</summary>
+    [RelayCommand]
+    private void CancelPreview() => _previewCts?.Cancel();
+
+    private static Avalonia.Media.Imaging.Bitmap LoadBitmap(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return new Avalonia.Media.Imaging.Bitmap(stream);
+    }
+
     [RelayCommand]
     private async Task AddFiles()
     {
@@ -324,6 +464,7 @@ public sealed partial class ConvertViewModel : ObservableObject
             try
             {
                 Jobs.Add(new ConvertJobViewModel(await MediaProbe.Default.ProbeAsync(path)));
+                SelectedJob ??= Jobs[^1];
             }
             catch (Exception ex)
             {

@@ -172,7 +172,7 @@ public class UpscalingTests
     /// A stand-in for realesrgan/realcugan: takes the same arguments, enlarges each frame with
     /// ffmpeg, and (when asked) fails with automatic tiling, like a GPU running out of memory.
     /// </summary>
-    private static string FakeUpscaler(string dir, bool failWithAutoTile)
+    private static string FakeUpscaler(string dir, bool failWithAutoTile, int sleepSeconds = 0)
     {
         var script = Path.Combine(dir, "fake-ncnn-vulkan");
         File.WriteAllText(script, $$"""
@@ -186,6 +186,9 @@ public class UpscalingTests
             done
             if [ "{{(failWithAutoTile ? "1" : "0")}}" = "1" ] && [ "$TILE" = "0" ]; then echo "vkAllocateMemory failed" >&2; exit 255; fi
             echo "$TILE" >> "{{dir}}/tiles.log"
+            echo $$ > "{{dir}}/pid"
+            ls "$IN" | wc -l >> "{{dir}}/frames.log"
+            sleep {{sleepSeconds}}
             for f in "$IN"/*.png; do
               "{{TestMedia.Locator.FfmpegPath}}" -v error -i "$f" -vf "scale=iw*$SCALE:ih*$SCALE:flags=neighbor" -y "$OUT/$(basename "$f")"
             done
@@ -352,6 +355,94 @@ public class UpscalingTests
                 .EstimateAsync(info, settings with { Algorithm = ScaleAlgorithm.AiAnimation });
             Assert.Null(ai.Error);
             Assert.True(ai.SecondsPerFrame > 0);
+        }
+    }
+
+    [Theory]
+    [InlineData(ScaleAlgorithm.Lanczos)]
+    [InlineData(ScaleAlgorithm.GpuDetail)]
+    [InlineData(ScaleAlgorithm.AiAnimation)]
+    public async Task Previews_show_one_frame_before_and_after(ScaleAlgorithm algorithm)
+    {
+        var method = UpscaleMethods.Get(algorithm);
+        var ai = method.Kind == UpscaleKind.AiFrames;
+        if (ai && !OperatingSystem.IsLinux())
+            return;
+        if (!ai && !await ReadyAsync(method))
+            return;
+        var dir = TestMedia.NewOutputDirectory();
+        // AI previews use the stand-in program, so this runs without a GPU.
+        var converter = ai ? new Converter { AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false) } } : new Converter();
+        var red = await TestMedia.ColorAsync("red", 2, 160, 120);
+        var settings = new ConversionSettings { Format = OutputFormats.WebmVp9, Algorithm = algorithm, Width = 640, Height = 360, ResizeMode = ResizeMode.Fit };
+        var before = Path.Combine(dir, "before.png");
+        var after = Path.Combine(dir, "after.png");
+        await converter.RenderPreviewAsync(red, settings, 1, before, after);
+
+        var b = await MediaProbe.Default.ProbeAsync(before);
+        var a = await MediaProbe.Default.ProbeAsync(after);
+        // Both laid out the same way (the original enlarged into the same place), so they line up.
+        Assert.Equal((640, 360), (b.Width, b.Height));
+        Assert.Equal((640, 360), (a.Width, a.Height));
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(before, 0, 320, 180), (255, 0, 0), 12), $"before {TestMedia.PixelAt(before, 0, 320, 180)}");
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(before, 0, 10, 180), (0, 0, 0), 12));
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(after, 0, 320, 180), (255, 0, 0), 12), $"after {TestMedia.PixelAt(after, 0, 320, 180)}");
+        // Fit: black bars at the sides.
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(after, 0, 10, 180), (0, 0, 0), 12));
+    }
+
+    [Fact]
+    public async Task Ai_preview_upscales_exactly_one_frame()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+        var dir = TestMedia.NewOutputDirectory();
+        var converter = new Converter { AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false) } };
+        // 29.97 fps, at a time between frames: the window must still yield just one.
+        var source = await TestMedia.NtscPatternAsync(3, 160, 120);
+        foreach (var time in new[] { 0.0, 1.017, 2.9 })
+        {
+            File.Delete(Path.Combine(dir, "frames.log"));
+            await converter.RenderPreviewAsync(source, new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnimation, Width = 320, Height = 240 },
+                time, Path.Combine(dir, "b.png"), Path.Combine(dir, "a.png"));
+            Assert.Equal(["1"], File.ReadAllLines(Path.Combine(dir, "frames.log")).Select(l => l.Trim()));
+        }
+    }
+
+    [Fact]
+    public async Task Cancelling_an_ai_preview_stops_everything()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+        var dir = TestMedia.NewOutputDirectory();
+        var work = Path.Combine(dir, "work");
+        var converter = new Converter { AiJob = new AiUpscaleJob { ProgramOverride = FakeUpscaler(dir, false, sleepSeconds: 60), WorkDirectory = work } };
+        var source = await TestMedia.PatternAsync(2, 160, 120);
+        using var cts = new CancellationTokenSource();
+        var preview = converter.RenderPreviewAsync(source, new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.AiAnime, Width = 320, Height = 240 },
+            1, Path.Combine(dir, "b.png"), Path.Combine(dir, "a.png"), cts.Token);
+        var pidFile = Path.Combine(dir, "pid");
+        for (var i = 0; i < 100 && !File.Exists(pidFile); i++)
+            await Task.Delay(50);
+        var pid = int.Parse((await File.ReadAllTextAsync(pidFile)).Trim());
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => preview);
+        await Task.Delay(200);
+        Assert.False(ProcessIsRunning(pid), "the AI program was stopped");
+        Assert.False(Directory.Exists(work));
+        Assert.False(File.Exists(Path.Combine(dir, "a.png")));
+    }
+
+    private static bool ProcessIsRunning(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return !p.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
         }
     }
 

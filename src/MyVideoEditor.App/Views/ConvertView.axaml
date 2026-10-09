@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:MyVideoEditor.App.ViewModels"
+             xmlns:controls="using:MyVideoEditor.App.Controls"
              x:Class="MyVideoEditor.App.Views.ConvertView"
              x:DataType="vm:ConvertViewModel">
   <UserControl.Styles>
@@ -11,31 +12,30 @@
   </UserControl.Styles>
   <Grid ColumnDefinitions="*,380">
     <!-- Queue -->
-    <DockPanel Margin="16,12,8,16">
-      <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,10">
+    <Grid Margin="16,12,8,16" RowDefinitions="Auto,Auto,*,5,2*">
+      <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,10">
         <TextBlock Text="Convert, resize and upscale" Classes="h1" />
         <TextBlock Classes="muted" TextWrapping="Wrap"
                    Text="Change file formats, make videos bigger or smaller, change the frame rate, trim or rotate. Add files, choose settings on the right, then Convert. Your originals are never changed." />
       </StackPanel>
-      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+      <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
         <Button Content="＋ Add files…" Command="{Binding AddFilesCommand}" />
         <Button Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
       </StackPanel>
-      <Border x:Name="DropZone" Classes="panel" BorderThickness="1" CornerRadius="6">
+      <Border Grid.Row="2" x:Name="DropZone" Classes="panel" BorderThickness="1" CornerRadius="6">
         <Panel>
           <TextBlock Text="Drop video or audio files here" HorizontalAlignment="Center" VerticalAlignment="Center" Classes="muted" FontSize="15"
                      IsVisible="{Binding !Jobs.Count}" />
-          <ScrollViewer>
-            <ItemsControl ItemsSource="{Binding Jobs}" Margin="8">
-              <ItemsControl.ItemTemplate>
+          <ListBox ItemsSource="{Binding Jobs}" SelectedItem="{Binding SelectedJob}" Margin="4" Background="Transparent">
+              <ListBox.ItemTemplate>
                 <DataTemplate DataType="vm:ConvertJobViewModel">
-                  <Border Background="#10FFFFFF" CornerRadius="4" Padding="10,8" Margin="0,3">
+                  <Border Padding="4,4">
                     <DockPanel>
                       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                         <Button Classes="tool" Content="Show" IsVisible="{Binding IsDone}"
-                                Command="{Binding $parent[ItemsControl].((vm:ConvertViewModel)DataContext).OpenOutputCommand}" CommandParameter="{Binding}" />
+                                Command="{Binding $parent[ListBox].((vm:ConvertViewModel)DataContext).OpenOutputCommand}" CommandParameter="{Binding}" />
                         <Button Classes="tool" Content="✕" IsVisible="{Binding !IsActive}" ToolTip.Tip="Remove from the list"
-                                Command="{Binding $parent[ItemsControl].((vm:ConvertViewModel)DataContext).RemoveJobCommand}" CommandParameter="{Binding}" />
+                                Command="{Binding $parent[ListBox].((vm:ConvertViewModel)DataContext).RemoveJobCommand}" CommandParameter="{Binding}" />
                       </StackPanel>
                       <StackPanel Spacing="3">
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
@@ -46,12 +46,41 @@
                     </DockPanel>
                   </Border>
                 </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
+              </ListBox.ItemTemplate>
+          </ListBox>
         </Panel>
       </Border>
-    </DockPanel>
+
+      <GridSplitter Grid.Row="3" ResizeDirection="Rows" Background="Transparent" />
+
+      <!-- Before / after preview of one frame -->
+      <DockPanel Grid.Row="4" Margin="0,6,0,0">
+        <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,6">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+              <ToggleButton Classes="tool" Content="Side by side" IsChecked="{Binding PreviewSideBySide}" ToolTip.Tip="Show both whole, or one over the other with a divider to drag" />
+              <ComboBox ItemsSource="{Binding PreviewZooms}" SelectedIndex="{Binding PreviewZoom}" MinWidth="80" ToolTip.Tip="Zoom (or use the mouse wheel on the picture); drag to look around" />
+            </StackPanel>
+            <TextBlock Text="PREVIEW" Classes="section" Margin="0" VerticalAlignment="Center" />
+          </DockPanel>
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <Panel>
+              <Button Classes="accent" Content="Preview frame" Command="{Binding PreviewCommand}" IsEnabled="{Binding CanPreview}" IsVisible="{Binding !IsPreviewing}"
+                      ToolTip.Tip="Convert just this frame with the current settings and compare it with the original" />
+              <Button Content="Cancel preview" Command="{Binding CancelPreviewCommand}" IsVisible="{Binding IsPreviewing}" />
+            </Panel>
+            <Slider Grid.Column="1" Minimum="0" Maximum="{Binding PreviewDuration}" Value="{Binding PreviewTime}" Margin="10,-6" IsEnabled="{Binding !IsPreviewing}" />
+            <TextBlock Grid.Column="2" Text="{Binding PreviewTimeText}" VerticalAlignment="Center" FontFamily="Cascadia Mono, DejaVu Sans Mono, Consolas, monospace" FontSize="12" />
+          </Grid>
+          <TextBlock Text="{Binding PreviewText}" FontSize="12" TextWrapping="Wrap" />
+          <TextBlock Text="The settings or frame have changed: press Preview frame to update." Classes="warning" FontSize="12" IsVisible="{Binding PreviewStale}" />
+        </StackPanel>
+        <Border Classes="panel" BorderThickness="1" CornerRadius="6" ClipToBounds="True">
+          <controls:ComparisonControl Before="{Binding PreviewBefore}" After="{Binding PreviewAfter}" Overlay="{Binding PreviewOverlay}"
+                                      SideBySide="{Binding PreviewSideBySide}" Zoom="{Binding PreviewZoom}" />
+        </Border>
+      </DockPanel>
+    </Grid>
 
     <!-- Settings -->
     <Border Grid.Column="1" Classes="panel" BorderThickness="1,0,0,0">

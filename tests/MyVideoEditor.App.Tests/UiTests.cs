@@ -250,6 +250,48 @@ public class UiTests
     }
 
     [AvaloniaFact]
+    public void Preview_compares_a_frame_before_and_after()
+    {
+        var (window, vm) = Open();
+        vm.SelectedTab = 1;
+        var convert = vm.Convert;
+        Await(convert.AddFilesAsync([Media(() => TestMedia.PatternAsync(4, 320, 240))]));
+        Assert.Same(convert.Jobs[0], convert.SelectedJob);
+        Assert.Equal(2, convert.PreviewTime, 1);
+        convert.SizePreset = "1280×720";
+        // The GPU method when this computer has one (installed first, so no download question), otherwise Enhanced.
+        var gpu = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.GpuDetail);
+        if (gpu.IsAvailable)
+        {
+            if (!Core.Upscaling.UpscalerComponents.IsInstalled(gpu.Method.Component!))
+                Task.Run(() => Core.Upscaling.UpscalerComponents.InstallAsync(gpu.Method.Component!)).GetAwaiter().GetResult();
+            convert.SelectedScaling = gpu;
+        }
+        else
+        {
+            convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.Enhanced);
+        }
+        Await(convert.PreviewCommand.ExecuteAsync(null));
+        Assert.DoesNotContain("failed", convert.PreviewText);
+        Assert.Equal(convert.PreviewAfter!.PixelSize, convert.PreviewBefore!.PixelSize);
+        Assert.Contains("Original 320×240", convert.PreviewText);
+        Assert.Equal((1280, 720), (convert.PreviewAfter!.PixelSize.Width, convert.PreviewAfter.PixelSize.Height));
+        Assert.False(convert.PreviewStale);
+        Pump();
+        Screenshot(window, "07-preview-wipe");
+
+        convert.PreviewSideBySide = true;
+        convert.PreviewZoom = 2;
+        Pump();
+        Screenshot(window, "08-preview-side-by-side-200");
+
+        // Changing a setting marks the preview out of date.
+        convert.ResizeMode = Core.Conversion.ResizeMode.Fill;
+        Assert.True(convert.PreviewStale);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
     public void Exporting_from_the_dialog_writes_the_file()
     {
         var (window, vm) = Open();

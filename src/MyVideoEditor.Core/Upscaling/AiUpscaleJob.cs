@@ -87,7 +87,15 @@ public sealed class AiUpscaleJob
                 {
                     var name = $"{done + i + 1:D8}.png";
                     var bytes = await File.ReadAllBytesAsync(Path.Combine(outDir, name), cancellationToken).ConfigureAwait(false);
-                    await encoder.StandardInput.BaseStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        await encoder.StandardInput.BaseStream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (IOException) when (encoder.HasExited)
+                    {
+                        // The encoder stopped early (an error, logged above): say so, not "broken pipe".
+                        throw new FfmpegException($"Encoding the upscaled video stopped unexpectedly (exit code {encoder.ExitCode}).", encoder.ExitCode, "");
+                    }
                 }
                 done += count;
                 Directory.Delete(inDir, recursive: true);
@@ -147,6 +155,9 @@ public sealed class AiUpscaleJob
         if (s.TrimEnd is > 0)
             args.AddRange(["-t", F(Math.Max(0.01, s.TrimEnd.Value - (s.TrimStart ?? 0)))]);
         args.AddRange(["-i", info.Path, "-map", "0:v:0"]);
+        // A still preview is exactly one frame: never upscale more than is shown.
+        if (s.Format.IsStill)
+            args.AddRange(["-frames:v", "1"]);
         var filters = new List<string>();
         if (s.Deinterlace)
             filters.Add("yadif");
@@ -172,16 +183,20 @@ public sealed class AiUpscaleJob
         args.AddRange(["-map", "0:v"]);
         if (withAudio)
             args.AddRange(["-map", "1:a:0"]);
+        // The upscaled frames are RGB: a still preview stays RGB, a video goes back to YUV with the source's matrix.
         var filters = new List<string>
         {
-            $"scale={target.Width}:{target.Height}:flags=lanczos+accurate_rnd+full_chroma_int:out_color_matrix={color.SwsMatrix}:out_range={color.Range}",
+            s.Format.IsStill
+                ? $"scale={target.Width}:{target.Height}:flags=lanczos+accurate_rnd,format=rgb24"
+                : $"scale={target.Width}:{target.Height}:flags=lanczos+accurate_rnd+full_chroma_int:out_color_matrix={color.SwsMatrix}:out_range={color.Range}",
         };
         if (target.PostFilter != null)
             filters.Add(target.PostFilter);
         filters.Add("setsar=1");
         args.AddRange(["-vf", string.Join(',', filters)]);
         args.AddRange(s.Format.CodecArguments(_locator.Capabilities, s.Quality, true, withAudio));
-        args.AddRange(color.OutputTags);
+        if (!s.Format.IsStill)
+            args.AddRange(color.OutputTags);
         if (!withAudio)
             args.Add("-an");
         args.AddRange(["-y", output]);

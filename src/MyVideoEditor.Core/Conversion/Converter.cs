@@ -153,6 +153,8 @@ public sealed class Converter
         }
 
         var filters = wantVideo ? VideoFilters(info, s) : [];
+        if (wantVideo && s.Format.IsStill)
+            filters.Add(StillToRgb(ColorSpec.For(info)));
         if (wantVideo && UpscaleMethods.Get(s.Algorithm).Kind == UpscaleKind.GpuShader)
         {
             // The GPU device has to be set up before the input.
@@ -228,6 +230,50 @@ public sealed class Converter
         filters.Add("setsar=1");
         return filters;
     }
+
+    /// <summary>
+    /// Renders one frame at <paramref name="time"/> through the conversion (<paramref name="afterPng"/>),
+    /// using exactly the conversion's method and settings, and the original (<paramref name="beforePng"/>)
+    /// laid out the same way (same size, bars or crop) but enlarged without smoothing, so the two line up
+    /// pixel for pixel and the original's real pixels show. Both are turned into RGB with the same colour
+    /// matrix, so any difference is the conversion's.
+    /// </summary>
+    public async Task RenderPreviewAsync(string input, ConversionSettings settings, double time, string beforePng, string afterPng,
+        CancellationToken cancellationToken = default)
+    {
+        var info = await MediaProbe.Default.ProbeAsync(input, cancellationToken).ConfigureAwait(false);
+        if (!info.HasVideo)
+            throw new InvalidOperationException("There's no picture to preview in this file.");
+        var fps = settings.FrameRate ?? MediaProbe.ParseRatio(info.FrameRateText);
+        var at = Math.Clamp(time, 0, Math.Max(0, info.Duration - 1.5 / Math.Max(1, fps)));
+        var color = ColorSpec.For(info);
+
+        var (srcW, srcH) = settings.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
+        var target = ScaledSize.For(srcW, srcH, settings.Width, settings.Height, settings.ResizeMode);
+        var layout = RotationFilters(settings.Rotate).Append($"scale={target.Width}:{target.Height}:flags=neighbor").ToList();
+        if (target.PostFilter != null)
+            layout.Add(target.PostFilter);
+        layout.Add(StillToRgb(color));
+        var before = new List<string> { "-ss", F(at), "-i", info.Path, "-frames:v", "1", "-vf", string.Join(',', layout), "-update", "1", "-y", beforePng };
+        await _runner.RunAsync(before, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var s = Effective(info, settings with
+        {
+            Format = OutputFormats.PngFrame,
+            Remux = false,
+            RemoveAudio = true,
+            TrimStart = at,
+            TrimEnd = at + 1.5 / Math.Max(1, fps),
+        });
+        if (UpscaleMethods.Get(s.Algorithm).Kind == UpscaleKind.AiFrames)
+            await AiJob.RunAsync(info, afterPng, s, null, cancellationToken).ConfigureAwait(false);
+        else
+            await _runner.RunAsync(BuildArguments(info, afterPng, s, _locator.Capabilities), cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>YUV to RGB with the source's own matrix (previews; the GPU path has already tagged its frames with it).</summary>
+    internal static string StillToRgb(ColorSpec color) =>
+        $"scale=in_color_matrix={color.SwsMatrix}:in_range={color.Range}:flags=accurate_rnd+full_chroma_int,format=rgb24";
 
     internal static IEnumerable<string> RotationFilters(int rotate) => (((rotate % 360) + 360) % 360) switch
     {

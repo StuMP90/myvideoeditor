@@ -33,6 +33,8 @@ public sealed record OutputFormat
     public bool IsGif { get; init; }
     /// <summary>Lower frame rate cap (GIFs).</summary>
     public double? MaxFrameRate { get; init; }
+    /// <summary>A single RGB picture (conversion previews), not a video.</summary>
+    public bool IsStill { get; init; }
 
     public bool HasVideo => VideoEncoders.Count > 0 || IsGif;
     public bool HasAudio => AudioEncoders.Count > 0;
@@ -187,6 +189,15 @@ public static class OutputFormats
     {
         Id = "opus", Label = "Opus audio", Extension = ".opus",
         AudioEncoders = [Opus],
+    };
+
+    /// <summary>One frame as a PNG: what the Convert tab's preview shows. Not offered as a format.</summary>
+    internal static readonly OutputFormat PngFrame = new()
+    {
+        Id = "png-frame", Label = "PNG frame", Extension = ".png",
+        VideoEncoders = [new EncoderChoice("png", _ => [])],
+        PixelFormat = "rgb24", IsStill = true,
+        ExtraArguments = ["-frames:v", "1", "-update", "1"],
     };
 
     public static IReadOnlyList<OutputFormat> All { get; } =
