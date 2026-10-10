@@ -99,7 +99,8 @@ public sealed class MediaPreviews
             var interval = isImage || duration <= 0 ? 1 : Math.Max(1, duration / MaxThumbnails);
             var cache = CacheFile(path, $"strip-{width}x{height}-{interval:0.###}");
             byte[] data;
-            if (File.Exists(cache))
+            // (An empty one is from before short clips with one keyframe got thumbnails: made again.)
+            if (File.Exists(cache) && new FileInfo(cache).Length > 0)
             {
                 data = await File.ReadAllBytesAsync(cache).ConfigureAwait(false);
             }
@@ -118,7 +119,9 @@ public sealed class MediaPreviews
                         var args = new List<string>();
                         if (!isImage)
                             args.AddRange(["-skip_frame", "nokey"]);
-                        args.AddRange(["-i", path, "-an", "-vf", isImage ? $"scale={width}:{height}" : $"fps=1/{F(interval)},scale={width}:{height}"]);
+                        // eof_action=pass: a short clip may have only one keyframe (the first), which the fps filter
+                        // would otherwise drop, leaving no thumbnails at all.
+                        args.AddRange(["-i", path, "-an", "-vf", isImage ? $"scale={width}:{height}" : $"fps=1/{F(interval)}:eof_action=pass,scale={width}:{height}"]);
                         if (isImage)
                             args.AddRange(["-frames:v", "1"]);
                         args.AddRange(["-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"]);

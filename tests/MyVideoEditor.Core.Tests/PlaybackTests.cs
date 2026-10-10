@@ -159,6 +159,15 @@ public class PlaybackTests
     }
 
     [Fact]
+    public async Task Clips_with_one_keyframe_get_thumbnails()
+    {
+        // Thumbnails come from keyframes only (fast); a short clip may have just the first one.
+        var strip = await new MediaPreviews(cacheDirectory: TestMedia.NewOutputDirectory()).GetFilmstripAsync(await TestMedia.OneKeyframeAsync(), 4, false);
+        Assert.NotNull(strip);
+        Assert.NotEmpty(strip.Frames);
+    }
+
+    [Fact]
     public async Task Filmstrips_and_waveforms_are_made_and_cached()
     {
         var file = await TestMedia.PatternAsync(4, 320, 240);

@@ -173,6 +173,11 @@ public static class TestMedia
             .. VideoCodec(), "-c:a", "aac", "-y", path,
         ]);
 
+    /// <summary>A short clip with a single keyframe (at the start), as encoders make for clips shorter than their keyframe interval.</summary>
+    public static Task<string> OneKeyframeAsync() =>
+        CachedAsync("one-keyframe.mp4", path =>
+            ["-f", "lavfi", "-i", "testsrc2=s=320x240:r=30:d=4", "-c:v", "libx264", "-preset", "ultrafast", "-g", "1000", "-pix_fmt", "yuv420p", "-y", path]);
+
     public static Task<string> ImageAsync(string color, int width = 400, int height = 300) =>
         CachedAsync($"image-{color}-{width}x{height}.png", path =>
             ["-f", "lavfi", "-i", $"color=c={color}:s={width}x{height}:d=1", "-frames:v", "1", "-y", path]);

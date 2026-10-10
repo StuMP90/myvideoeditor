@@ -1,6 +1,6 @@
 # MyVideoEditor privacy policy
 
-_Last updated: 9 October 2026_
+_Last updated: 10 October 2026_
 
 MyVideoEditor is a video editor, converter and screen recorder. It is developed by Stuart
 Millington and released as open source under the MIT licence. This policy covers the MyVideoEditor
@@ -52,8 +52,9 @@ MyVideoEditor keeps a small amount of data in a folder in your user profile:
 
 That folder holds:
 
-- **Settings (`settings.json`):** your preferences and the list of recently opened projects (their
-  file paths).
+- **Settings (`settings.json`):** your preferences, the list of recently opened projects (their
+  file paths), and the folders you last used for importing, saving and exporting, so the file
+  dialogs open there again.
 - **Autosave (`autosave/`):** a copy of the project you're working on, saved every minute while it
   has unsaved changes, so it can be restored if the app closes unexpectedly. It's deleted when you
   save or discard the project.

@@ -31,7 +31,7 @@
     </Grid>
     <StackPanel IsVisible="{Binding IsDvd}" Margin="110,0,0,0" Spacing="4">
       <TextBlock Text="{Binding DvdNote}" FontSize="12" TextWrapping="Wrap" />
-      <CheckBox Content="Also make a DVD folder (VIDEO_TS) to burn" IsChecked="{Binding MakeDvdFolder}" IsVisible="{Binding CanMakeDvdFolder}" IsEnabled="{Binding CanEdit}"
+      <CheckBox Content="Also make a DVD folder (VIDEO__TS) to burn" IsChecked="{Binding MakeDvdFolder}" IsVisible="{Binding CanMakeDvdFolder}" IsEnabled="{Binding CanEdit}"
                 ToolTip.Tip="Made with dvdauthor next to the file: burn the folder's contents as a DVD-Video disc" />
       <TextBlock Text="{Binding DvdFolderHint}" IsVisible="{Binding !CanMakeDvdFolder}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
     </StackPanel>

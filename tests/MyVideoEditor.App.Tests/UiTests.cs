@@ -18,12 +18,12 @@ namespace MyVideoEditor.App.Tests;
 /// Drives the real UI headlessly (rendered with Skia, off-screen). Set
 /// MYVIDEOEDITOR_SCREENSHOT_DIR to keep screenshots of each step.
 /// </summary>
-public class UiTests
+public partial class UiTests
 {
-    private static (MainWindow Window, MainWindowViewModel ViewModel) Open(int width = 1440, int height = 900)
+    private static (MainWindow Window, MainWindowViewModel ViewModel) Open(int width = 1440, int height = 900, Core.Playback.IAudioSink? audio = null)
     {
         var window = new MainWindow { Width = width, Height = height };
-        var vm = new MainWindowViewModel(new DialogService(window), new AppSettings(), audio: null);
+        var vm = new MainWindowViewModel(new DialogService(window), new AppSettings(), audio);
         window.DataContext = vm;
         window.Show();
         Pump();

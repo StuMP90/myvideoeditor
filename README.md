@@ -246,6 +246,11 @@ ffmpeg and ffprobe (`tools/fetch-ffmpeg.sh linux-x64 ~/ffmpeg` fetches the relea
 dotnet run --project src/MyVideoEditor.App
 ```
 
+On Linux, a dev run shows a generic icon in the dock, because the desktop matches windows to menu
+entries and only an installed copy has one. `tools/install-dev-desktop-entry.sh` adds a
+"MyVideoEditor (dev)" entry that runs the repository's build, so the icon shows (`--remove` takes
+it away again).
+
 Upscaling components download into the data folder's `tools/` (override with
 `MYVIDEOEDITOR_TOOLS_DIR`).
 
@@ -305,6 +310,20 @@ packaging/publish-linux.sh 0.1.0 x64      # → artifacts/linux/myvideoeditor-0.
 For Store-ready packages from CI, set the repository variables `MSIX_IDENTITY_NAME`,
 `MSIX_PUBLISHER` and `MSIX_PUBLISHER_DISPLAY_NAME` to the values from Partner Center. The icons
 and Store logos come from `tools/make_icons.py`.
+
+### Microsoft Store listing
+
+[`packaging/store/STORE-LISTING.md`](packaging/store/STORE-LISTING.md) has everything else
+Partner Center asks for, ready to paste in: descriptions, features, search terms, screenshot
+captions, the age-rating answers, the privacy policy link (this repository's
+[PRIVACY.md](PRIVACY.md)), certification notes, and the justification for the `runFullTrust`
+capability. The screenshots in `packaging/store/screenshots` are made by a test from
+footage it draws itself, so they contain no third-party media. Remake them after UI changes:
+
+```bash
+MYVIDEOEDITOR_STORE_SCREENSHOTS=packaging/store/screenshots \
+    dotnet test tests/MyVideoEditor.App.Tests --filter StoreScreenshots
+```
 
 ## Keyboard
 
