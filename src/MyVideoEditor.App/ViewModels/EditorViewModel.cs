@@ -167,7 +167,7 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         new("Title card", new TitleClip { Text = "Title\nSubtitle", FontSize = 80, BackgroundColor = "#101418", Shadow = false }),
         new("Lower third", new TitleClip { Text = "Name\nRole", FontSize = 44, X = 0.06, Y = 0.82, Alignment = Core.Model.TextAlignment.Left, BoxColor = "#000000", BoxOpacity = 0.6, Shadow = false }),
         new("Caption", new TitleClip { Text = "Caption text", FontSize = 42, Y = 0.9, Bold = false, BoxColor = "#000000", BoxOpacity = 0.55, Shadow = false }),
-        new("Chapter", new TitleClip { Text = "Chapter 1", FontSize = 64, Y = 0.12, OutlineWidth = 3 }),
+        new("Chapter", new TitleClip { Text = "Chapter 1", FontSize = 64, Y = 0.12, OutlineWidth = 3, StartsChapter = true }),
         new("End card", new TitleClip { Text = "Thanks for watching", FontSize = 80, BackgroundColor = "#000000", Shadow = false }),
         new("Credits roll", new TitleClip
         {

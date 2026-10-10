@@ -697,6 +697,80 @@ public class RenderTests
         Assert.Equal(("mpeg2video", dvdHeight.ToString(), aspect, "ac3"), (info["video.codec_name"], info["video.height"], info["video.display_aspect_ratio"], info["audio.codec_name"]));
     }
 
+    /// <summary>A project of three 2 s red clips on V1, a chapter title at 2 s and an ordinary title at 4 s.</summary>
+    private static async Task<EditSession> ChapterProject(int w = 320, int h = 240, double fps = 30)
+    {
+        var session = new EditSession(Project.CreateDefault("chapters", new ProjectSettings { Width = w, Height = h, FrameRate = fps }));
+        var red = await ImportAsync(session, await TestMedia.ColorAsync("red", 2, w, h));
+        var v1 = session.Project.Tracks.First(t => t.Name == "V1").Id;
+        for (var i = 0; i < 3; i++)
+            session.Editor.AddMediaClip(red, i * 2, v1);
+        session.Editor.AddTitle(2, new TitleClip { Text = "The middle\nsubtitle", Duration = 1, StartsChapter = true });
+        session.Editor.AddTitle(4, new TitleClip { Text = "Not a chapter", Duration = 1 });
+        return session;
+    }
+
+    [Fact]
+    public async Task Chapters_come_from_titles_cuts_or_a_steady_interval()
+    {
+        var project = (await ChapterProject()).Project;
+        Assert.Equal([(0.0, "Chapter 1"), (2.0, "The middle")], Chapters.For(project, ChapterSource.Titles, 0, 6).Select(c => (c.Start, c.Title)));
+        Assert.Equal([0.0, 2, 4], Chapters.For(project, ChapterSource.Cuts, 0, 6).Select(c => c.Start));
+        Assert.Empty(Chapters.For(project, ChapterSource.None, 0, 6));
+        Assert.Empty(Chapters.For(project, ChapterSource.Interval, 0, 6)); // shorter than 5 minutes: just the one
+        // Exporting part of the timeline: times from the export's start; a chapter title at the start names the first.
+        Assert.Equal([(0.0, "Chapter 1"), (1.0, "The middle")], Chapters.For(project, ChapterSource.Titles, 1, 6).Select(c => (c.Start, c.Title)));
+        Assert.Empty(Chapters.For(project, ChapterSource.Titles, 2, 6)); // only one chapter in that part: none
+        Assert.Equal([(0.0, "Chapter 1"), (2.0, "Chapter 2")], Chapters.For(project, ChapterSource.Cuts, 2, 6).Select(c => (c.Start, c.Title)));
+        // Long projects: every 5 minutes, at most 99 (DVD's limit).
+        var interval = Chapters.For(project, ChapterSource.Interval, 0, 1000 * 60);
+        Assert.Equal(Chapters.Maximum, interval.Count);
+        Assert.Equal(300, interval[1].Start);
+        Assert.Equal("0:00:00.000,0:05:00.000", Chapters.DvdAuthorList(interval.Take(2).ToList()));
+    }
+
+    [Fact]
+    public async Task Mp4_exports_carry_chapters()
+    {
+        var session = await ChapterProject();
+        var output = await ExportAsync(session, settings: new ExportSettings { Format = OutputFormats.Mp4H264, Chapters = ChapterSource.Cuts });
+        var psi = new System.Diagnostics.ProcessStartInfo(TestMedia.Locator.FfprobePath) { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "-v", "error", "-show_chapters", "-of", "csv=p=0", output })
+            psi.ArgumentList.Add(a);
+        using var p = ChildProcess.Start(psi);
+        var lines = p.StandardOutput.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        p.WaitForExit();
+        // id, time base, start, start_time, end, end_time, title
+        Assert.Equal(3, lines.Length);
+        Assert.Equal(["0.000000", "2.000000", "4.000000"], lines.Select(l => l.Split(',')[3]));
+        Assert.Equal(["Chapter 1", "Chapter 2", "Chapter 3"], lines.Select(l => l.Split(',')[^1]));
+        // Without chapters chosen there are none.
+        var plain = await ExportAsync(session);
+        Assert.True(TestMedia.FrameCount(plain) > 0);
+    }
+
+    [Fact]
+    public async Task Dvd_folders_get_chapters_exactly_where_they_were_put()
+    {
+        if (DvdVideo.AuthorProgram == null)
+            return; // dvdauthor isn't installed here
+        var session = await ChapterProject(1280, 720);
+        var dir = TestMedia.NewOutputDirectory();
+        var mpeg = Path.Combine(dir, "Chapters.mpg");
+        await new ProjectExporter().ExportAsync(session.Project, mpeg, new ExportSettings { Format = OutputFormats.DvdVideo, MakeDvdFolder = true, Chapters = ChapterSource.Cuts });
+        Assert.True(File.Exists(Path.Combine(ProjectExporter.DvdFolderFor(mpeg), "VIDEO_TS", "VTS_01_0.IFO")));
+        // dvdauthor's own account of the chapters (made again from the same file): at 0, 2 and 4 s, as asked
+        // (the encoder put keyframes there; otherwise they'd move to the next one).
+        var dvd = DvdVideo.For(session.Project.Settings);
+        await dvd.MakeFolderAsync(mpeg, Path.Combine(dir, "again"), Chapters.For(session.Project, ChapterSource.Cuts, 0, 6));
+        var starts = System.Text.RegularExpressions.Regex.Matches(dvd.LastLog, @"CHAPTERS: VTS\[1/1\] ([\d.]+)").Select(m => double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        Assert.Equal(3, starts.Count);
+        // dvdauthor reports times on the file's clock, which starts when its first picture is shown.
+        var offset = await DvdVideo.VideoStartAsync(mpeg);
+        Assert.InRange(offset, 0.1, 1);
+        Assert.All(starts.Skip(1).Zip([2.0, 4]), x => Assert.InRange(x.First - offset, x.Second - 0.02, x.Second + 0.02));
+    }
+
     [Fact]
     public async Task Fade_in_starts_from_the_background()
     {

@@ -45,6 +45,12 @@
         </ComboBox.ItemTemplate>
       </ComboBox>
     </Grid>
+    <Grid ColumnDefinitions="110,*" IsEnabled="{Binding CanEdit}" IsVisible="{Binding OffersChapters}">
+      <TextBlock Classes="name" Text="Chapters" />
+      <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ExportViewModel.ChapterChoices}" SelectedIndex="{Binding ChapterIndex}" HorizontalAlignment="Stretch"
+                ToolTip.Tip="Chapter points players can skip between (in DVD players, the next and previous buttons)" />
+    </Grid>
+    <TextBlock Text="{Binding ChapterSummary}" IsVisible="{Binding OffersChapters}" Classes="muted" FontSize="11" Margin="110,-4,0,0" />
     <Grid ColumnDefinitions="110,*,Auto,*" IsEnabled="{Binding CanEdit}">
       <TextBlock Classes="name" Text="Part" />
       <TextBox Grid.Column="1" Text="{Binding RangeStart}" ToolTip.Tip="Start time" />

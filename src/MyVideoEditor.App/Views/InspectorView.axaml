@@ -168,6 +168,8 @@
         <CheckBox Content="Italic" IsChecked="{Binding Italic}" />
         <CheckBox Content="Shadow" IsChecked="{Binding Shadow}" />
       </StackPanel>
+      <CheckBox Content="Starts a chapter" IsChecked="{Binding StartsChapter}"
+                ToolTip.Tip="Exports with chapters (MP4, MKV, MOV, WebM, DVD folders) start a chapter here, named after the title's first line" />
       <Grid Classes="row" ColumnDefinitions="90,*">
         <TextBlock Classes="name" Text="Align" />
         <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ClipInspectorViewModel.Alignments}" SelectedItem="{Binding Alignment}" HorizontalAlignment="Stretch" />

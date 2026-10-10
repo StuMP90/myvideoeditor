@@ -68,7 +68,10 @@ Both include FFmpeg, so there's nothing else to install.
 - **Export**: MP4 (H.264, H.265, AV1), WebM (VP9, AV1), MKV, MOV (ProRes 422), **DVD-Video**
   (MPEG-2 and AC-3 sound at DVD's own size and frame rate, NTSC or PAL from the project's frame
   rate, 4:3 or 16:9 from its shape, other shapes with black bars; with dvdauthor installed it also
-  makes the disc's VIDEO_TS folder, ready to burn), animated GIF (with a proper palette), and audio only (MP3, M4A, WAV, FLAC, Opus). Three quality levels, any output
+  makes the disc's VIDEO_TS folder, ready to burn), animated GIF (with a proper palette),
+  **chapters** in MP4, MKV, MOV, WebM and DVD folders (at titles marked "starts a chapter", such
+  as the Chapter title; at each cut on the main video track; or every 5 minutes; keyframes are
+  placed so each chapter starts exactly where it was put), and audio only (MP3, M4A, WAV, FLAC, Opus). Three quality levels, any output
   size (exporting larger upscales with Lanczos; titles are redrawn sharp at the new size), and
   part of the timeline only. Single frames save as PNG.
 

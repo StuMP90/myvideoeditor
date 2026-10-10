@@ -117,6 +117,8 @@ public sealed class TitleClip : Clip
     public double BoxOpacity { get; set; } = 0.6;
     /// <summary>Fill the whole frame with this colour behind the text ("" = transparent): title cards.</summary>
     public string BackgroundColor { get; set; } = "";
+    /// <summary>A chapter starts here (exports with chapters: DVD, MP4, MKV…), named after the text's first line.</summary>
+    public bool StartsChapter { get; set; }
 
     /// <summary>A picture shown with the text, such as a logo ("" = none): PNG, JPEG, WebP, BMP or GIF.</summary>
     public string ImagePath { get; set; } = "";

@@ -72,20 +72,46 @@ public sealed record DvdVideo(bool Pal, bool Wide)
     /// Makes a disc folder (VIDEO_TS, and an empty AUDIO_TS) from <paramref name="mpeg"/> with dvdauthor:
     /// one title that plays straight away. Burn the folder's contents as a DVD-Video disc.
     /// </summary>
-    public async Task<string> MakeFolderAsync(string mpeg, string folder, CancellationToken cancellationToken = default)
+    public async Task<string> MakeFolderAsync(string mpeg, string folder, IReadOnlyList<Chapter>? chapters = null, CancellationToken cancellationToken = default)
     {
         var program = AuthorProgram ?? throw new InvalidOperationException("dvdauthor isn't installed.");
         if (Directory.Exists(folder))
             Directory.Delete(folder, recursive: true);
         Directory.CreateDirectory(folder);
         var video = $"{(Pal ? "pal" : "ntsc")}+{Aspect}";
-        await Run(program, ["-o", folder, "-t", "-v", video, "-a", "ac3+en", mpeg], video, cancellationToken).ConfigureAwait(false);
+        var title = new List<string> { "-o", folder, "-t", "-v", video, "-a", "ac3+en" };
+        if (chapters is { Count: > 1 })
+        {
+            // dvdauthor reads chapter times on the file's own clock, which starts a little after 0 (the
+            // DVD muxer's start delay), and uses the nearest point a chapter can start: shift them to match,
+            // so they land on the keyframes the encoder put at each chapter.
+            var start = await VideoStartAsync(mpeg, cancellationToken).ConfigureAwait(false);
+            title.AddRange(["-c", Chapters.DvdAuthorList(chapters.Select(c => c.Start > 0 ? c with { Start = c.Start + start } : c).ToList())]);
+        }
+        title.Add(mpeg);
+        LastLog = await Run(program, title, video, cancellationToken).ConfigureAwait(false);
         await Run(program, ["-o", folder, "-T"], video, cancellationToken).ConfigureAwait(false);
         Directory.CreateDirectory(Path.Combine(folder, "AUDIO_TS"));
         return folder;
     }
 
-    private async Task Run(string program, IEnumerable<string> args, string video, CancellationToken cancellationToken)
+    /// <summary>When the file's first picture is shown, on its own clock (seconds; 0 if unknown).</summary>
+    internal static async Task<double> VideoStartAsync(string mpeg, CancellationToken cancellationToken = default)
+    {
+        var psi = new ProcessStartInfo(FfmpegLocator.Default.FfprobePath) { RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+        foreach (var a in new[] { "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=start_time", "-of", "csv=p=0", mpeg })
+            psi.ArgumentList.Add(a);
+        using var p = ChildProcess.Start(psi);
+        var output = await p.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        await p.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        // (ffprobe's csv output can end with a separator: "0.533367,")
+        return double.TryParse(output.Trim().TrimEnd(','), NumberStyles.Float, CultureInfo.InvariantCulture, out var start) ? start : 0;
+    }
+
+    /// <summary>What dvdauthor said making the last title (its chapter list, for one).</summary>
+    public string LastLog { get; private set; } = "";
+
+    private async Task<string> Run(string program, IEnumerable<string> args, string video, CancellationToken cancellationToken)
     {
         var psi = new ProcessStartInfo(program) { RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (var a in args)
@@ -101,5 +127,6 @@ public sealed record DvdVideo(bool Pal, bool Wide)
             Log.Warn("dvd", $"dvdauthor ({video}) failed: {log}");
             throw new InvalidOperationException("Making the DVD folder failed: " + log.Split('\n').LastOrDefault(l => l.Contains("ERR", StringComparison.Ordinal))?.Trim());
         }
+        return log;
     }
 }

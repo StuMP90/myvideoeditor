@@ -37,6 +37,8 @@ public sealed record OutputFormat
     public bool IsStill { get; init; }
     /// <summary>DVD-Video: the frame size, rate and pixel shape are the DVD standard's (see <see cref="DvdVideo"/>), not the project's.</summary>
     public bool IsDvd { get; init; }
+    /// <summary>The file can hold chapters (MP4, MKV, MOV, WebM); DVD chapters go in the disc folder.</summary>
+    public bool SupportsChapters { get; init; }
 
     public bool HasVideo => VideoEncoders.Count > 0 || IsGif;
     public bool HasAudio => AudioEncoders.Count > 0;
@@ -122,7 +124,7 @@ public static class OutputFormats
 
     public static readonly OutputFormat Mp4H264 = new()
     {
-        Id = "mp4-h264", Label = "MP4 (H.264)", Extension = ".mp4",
+        Id = "mp4-h264", SupportsChapters = true, Label = "MP4 (H.264)", Extension = ".mp4",
         Description = "Plays everywhere: browsers, phones, chat apps, bug trackers.",
         VideoEncoders = [X264, OpenH264, Mpeg4], AudioEncoders = [Aac],
         ExtraArguments = ["-movflags", "+faststart"],
@@ -130,7 +132,7 @@ public static class OutputFormats
 
     public static readonly OutputFormat Mp4H265 = new()
     {
-        Id = "mp4-h265", Label = "MP4 (H.265/HEVC)", Extension = ".mp4",
+        Id = "mp4-h265", SupportsChapters = true, Label = "MP4 (H.265/HEVC)", Extension = ".mp4",
         Description = "About half the size of H.264 at the same quality; newer devices.",
         VideoEncoders = [X265], AudioEncoders = [Aac],
         ExtraArguments = ["-movflags", "+faststart"],
@@ -138,7 +140,7 @@ public static class OutputFormats
 
     public static readonly OutputFormat Mp4Av1 = new()
     {
-        Id = "mp4-av1", Label = "MP4 (AV1)", Extension = ".mp4",
+        Id = "mp4-av1", SupportsChapters = true, Label = "MP4 (AV1)", Extension = ".mp4",
         Description = "Smallest files; slow to encode, recent browsers and devices.",
         VideoEncoders = [SvtAv1, AomAv1], AudioEncoders = [Aac],
         ExtraArguments = ["-movflags", "+faststart"],
@@ -146,28 +148,28 @@ public static class OutputFormats
 
     public static readonly OutputFormat WebmVp9 = new()
     {
-        Id = "webm-vp9", Label = "WebM (VP9)", Extension = ".webm",
+        Id = "webm-vp9", SupportsChapters = true, Label = "WebM (VP9)", Extension = ".webm",
         Description = "Open format for the web.",
         VideoEncoders = [Vp9], AudioEncoders = [Opus, Vorbis],
     };
 
     public static readonly OutputFormat WebmAv1 = new()
     {
-        Id = "webm-av1", Label = "WebM (AV1)", Extension = ".webm",
+        Id = "webm-av1", SupportsChapters = true, Label = "WebM (AV1)", Extension = ".webm",
         Description = "Open format, smallest files.",
         VideoEncoders = [SvtAv1, AomAv1], AudioEncoders = [Opus, Vorbis],
     };
 
     public static readonly OutputFormat MkvH264 = new()
     {
-        Id = "mkv-h264", Label = "MKV (H.264)", Extension = ".mkv",
+        Id = "mkv-h264", SupportsChapters = true, Label = "MKV (H.264)", Extension = ".mkv",
         Description = "Matroska container; robust and flexible.",
         VideoEncoders = [X264, OpenH264, Mpeg4], AudioEncoders = [Aac, Opus],
     };
 
     public static readonly OutputFormat MovProRes = new()
     {
-        Id = "mov-prores", Label = "MOV (ProRes 422)", Extension = ".mov",
+        Id = "mov-prores", SupportsChapters = true, Label = "MOV (ProRes 422)", Extension = ".mov",
         Description = "Editing intermediate for other editors; very large files.",
         VideoEncoders = [ProRes], AudioEncoders = [Pcm16],
         PixelFormat = "yuv422p10le",

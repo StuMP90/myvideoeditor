@@ -339,6 +339,13 @@ public sealed partial class ClipInspectorViewModel : ObservableObject
         set => Set("Background colour", c => ((TitleClip)c).BackgroundColor = Hex(value), "bgcolor");
     }
 
+    /// <summary>A chapter starts at this title (exports with chapters, DVD folders).</summary>
+    public bool StartsChapter
+    {
+        get => Title?.StartsChapter ?? false;
+        set => Set(value ? "Start a chapter" : "No chapter", c => ((TitleClip)c).StartsChapter = value);
+    }
+
     // ---- title picture --------------------------------------------------------------------
 
     /// <summary>Asks for a picture file (set by the editor, which owns the dialogs).</summary>

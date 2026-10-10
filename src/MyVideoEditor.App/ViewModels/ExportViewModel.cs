@@ -36,6 +36,8 @@ public sealed partial class ExportViewModel : ObservableObject
             .. new[] { 2160, 1440, 1080, 720, 480, 360 }.Where(x => x != h).Select(x => new SizeChoice($"{x}p{(x > h ? " (upscale)" : "")}", x)),
         ];
         _size = Sizes[0];
+        // Chapter titles in the project: use them.
+        _chapterIndex = project.Tracks.SelectMany(t => t.Clips).OfType<TitleClip>().Any(t => t.StartsChapter) ? (int)ChapterSource.Titles : 0;
         var folder = settings.LastExportFolder ?? (projectPath != null ? Path.GetDirectoryName(projectPath) : null) ?? AppPaths.VideosDirectory;
         _outputPath = Path.Combine(folder, SafeName(project.Name) + _format.Extension);
         _rangeEnd = Timecode.Format(project.Duration);
@@ -105,6 +107,34 @@ public sealed partial class ExportViewModel : ObservableObject
         }
     }
 
+    // ---- chapters -----------------------------------------------------------------------------
+
+    public static IReadOnlyList<string> ChapterChoices { get; } = ["None", "At chapter titles", "At each cut (main video track)", "Every 5 minutes"];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ChapterSummary))]
+    private int _chapterIndex;
+
+    public ChapterSource ChapterSource => (ChapterSource)Math.Clamp(ChapterIndex, 0, 3);
+
+    /// <summary>Chapters can go in this export: formats that hold them, and DVD folders.</summary>
+    public bool OffersChapters => Format.SupportsChapters || (Format.IsDvd && CanMakeDvdFolder && MakeDvdFolder);
+
+    public string ChapterSummary
+    {
+        get
+        {
+            if (ChapterSource == ChapterSource.None)
+                return "";
+            var count = Chapters.For(_project, ChapterSource, 0, _project.Duration).Count;
+            return count == 0
+                ? ChapterSource == ChapterSource.Titles ? "No titles start a chapter (tick \"Starts a chapter\" on a title, or use the Chapter title)." : "Too short for chapters."
+                : $"{count} chapters" + (count == Chapters.Maximum ? " (the most a DVD allows)" : "");
+        }
+    }
+
+    partial void OnMakeDvdFolderChanged(bool value) => OnPropertyChanged(nameof(OffersChapters));
+
     /// <summary>dvdauthor is installed, so a disc folder can be made too.</summary>
     public bool CanMakeDvdFolder { get; } = DvdVideo.AuthorProgram != null;
 
@@ -127,6 +157,7 @@ public sealed partial class ExportViewModel : ObservableObject
         OnPropertyChanged(nameof(FormatHasVideo));
         OnPropertyChanged(nameof(ShowsSize));
         OnPropertyChanged(nameof(IsDvd));
+        OnPropertyChanged(nameof(OffersChapters));
     }
 
     partial void OnFinishedPathChanged(string? value) => OnPropertyChanged(nameof(IsFinished));
@@ -169,6 +200,7 @@ public sealed partial class ExportViewModel : ObservableObject
             RangeStart = start > 0.0001 ? start : null,
             RangeEnd = end < _project.Duration - 0.0001 ? end : null,
             MakeDvdFolder = Format.IsDvd && CanMakeDvdFolder && MakeDvdFolder,
+            Chapters = OffersChapters ? ChapterSource : ChapterSource.None,
         };
         _settings.ExportFormat = Format.Id;
         _settings.ExportQuality = Quality.ToString();

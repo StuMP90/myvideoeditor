@@ -39,6 +39,7 @@ public partial class HelpWindow : Window
         ("Titles, effects and annotations", new (string?, string)[]
         {
             ("T  /  Title ▾", "Add a title at the playhead (title, title card, lower third, caption, chapter, end card)"),
+            (null, "Chapters: titles with \"Starts a chapter\" ticked (the Chapter title is) become chapters in exports that hold them (MP4, MKV, MOV, WebM, DVD folders); the export can also put one at each cut or every 5 minutes."),
             ("Annotate buttons", "Choose a tool, then drag on the preview: arrow, box, circle, highlight, spotlight, callout, numbered step, blur, pixelate, zoom"),
             ("Shift while drawing", "Keep the tool for another annotation; squares and circles stay square"),
             ("Drag in the preview", "Move the selected title, annotation or video; drag the white handles to resize annotations"),

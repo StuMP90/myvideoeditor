@@ -130,6 +130,25 @@ public class UiTests
         window.CloseWithoutPrompt();
     }
 
+    [AvaloniaFact]
+    public void Chapter_titles_become_export_chapters()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(6, 320, 240))], addToTimeline: true));
+        editor.Seek(3);
+        editor.AddTitleCommand.Execute(EditorViewModel.TitleTemplates.First(t => t.Label == "Chapter"));
+        Assert.True(editor.Inspector!.StartsChapter); // the Chapter template starts one
+        var export = new ExportViewModel(editor.Project, AppSettings.Load(), new DialogService(window), null);
+        export.Format = Core.Export.OutputFormats.Mp4H264;
+        Assert.True(export.OffersChapters);
+        Assert.Equal(Core.Export.ChapterSource.Titles, export.ChapterSource); // chosen because there's a chapter title
+        Assert.Equal("2 chapters", export.ChapterSummary);
+        export.Format = export.Formats.First(f => f.Id == "mp3");
+        Assert.False(export.OffersChapters); // audio-only formats don't hold them here
+        window.CloseWithoutPrompt();
+    }
+
     private static string SaveProject(EditorViewModel editor, string path)
     {
         Core.Model.ProjectSerializer.Save(editor.Project, path);

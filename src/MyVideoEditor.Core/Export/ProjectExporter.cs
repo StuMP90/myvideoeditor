@@ -17,6 +17,9 @@ public sealed record ExportSettings
     public double? RangeEnd { get; init; }
     /// <summary>DVD-Video: also make a disc folder (VIDEO_TS) next to the file, with dvdauthor.</summary>
     public bool MakeDvdFolder { get; init; }
+    /// <summary>Chapters, for formats that hold them and DVD folders.</summary>
+    public ChapterSource Chapters { get; init; }
+    public double ChapterIntervalMinutes { get; init; } = 5;
 }
 
 /// <summary>Renders a project to a file.</summary>
@@ -74,6 +77,23 @@ public sealed class ProjectExporter
         {
             output.AddRange(["-r", RenderPlan.F(plan.FrameRate)]);
         }
+        // Chapters: a keyframe at each, so they start exactly there; in the file (MP4, MKV…) or the DVD folder.
+        var rangeStart = settings.RangeStart ?? 0;
+        var chapters = format.SupportsChapters || (format.IsDvd && settings.MakeDvdFolder)
+            ? Export.Chapters.For(project, settings.Chapters, rangeStart, rangeStart + plan.Duration, settings.ChapterIntervalMinutes)
+            : [];
+        string? chapterFile = null;
+        if (chapters.Count > 0)
+        {
+            output.AddRange(["-force_key_frames", Export.Chapters.KeyFrames(chapters)]);
+            if (format.SupportsChapters)
+            {
+                chapterFile = Path.Combine(Path.GetTempPath(), $"myvideoeditor-chapters-{Guid.NewGuid():N}.txt");
+                File.WriteAllText(chapterFile, Export.Chapters.Metadata(chapters, plan.Duration));
+                output.AddRange(["-map_chapters", plan.InputCount.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+                plan = plan with { InputArguments = [.. plan.InputArguments, "-f", "ffmetadata", "-i", chapterFile], InputCount = plan.InputCount + 1 };
+            }
+        }
         output.AddRange(format.CodecArguments(caps, settings.Quality));
         output.AddRange(["-t", RenderPlan.F(plan.Duration), "-y"]);
 
@@ -92,9 +112,11 @@ public sealed class ProjectExporter
         finally
         {
             TryDelete(partial);
+            if (chapterFile != null)
+                TryDelete(chapterFile);
         }
         if (dvd != null && settings.MakeDvdFolder)
-            await dvd.MakeFolderAsync(full, DvdFolderFor(full), cancellationToken).ConfigureAwait(false);
+            await dvd.MakeFolderAsync(full, DvdFolderFor(full), chapters, cancellationToken).ConfigureAwait(false);
         return plan.Warnings;
     }
 
