@@ -98,6 +98,38 @@ public class UiTests
         window.CloseWithoutPrompt();
     }
 
+    [AvaloniaFact]
+    public void A_dvd_clip_sets_up_a_dvd_project()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.DvdAsync("32/27"))], addToTimeline: true));
+        var s = editor.Project.Settings;
+        Assert.Equal((854, 480, 720), (s.Width, s.Height, s.OutputWidth)); // edited at the shown size, exported at 720
+        Assert.Contains("720×480", editor.Status);
+        var export = new ExportViewModel(editor.Project, AppSettings.Load(), new DialogService(window), null);
+        Assert.Contains("720×480", export.Sizes[0].Label);
+        Assert.Contains(Core.Model.ProjectSettings.CommonSizes, p => p.Name.StartsWith("DVD NTSC 16:9") && p.Width == 854 && p.OutputWidth == 720 && p.FrameRate == 29.97);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Dvd_video_export_explains_what_the_project_becomes()
+    {
+        var (window, vm) = Open();
+        Await(vm.Editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(2, 1280, 720))], addToTimeline: true));
+        var export = new ExportViewModel(vm.Editor.Project, AppSettings.Load(), new DialogService(window), null);
+        export.Format = export.Formats.First(f => f.IsDvd);
+        Assert.True(export.IsDvd);
+        Assert.False(export.ShowsSize); // DVD's size is fixed
+        Assert.EndsWith(".mpg", export.OutputPath);
+        Assert.Contains("NTSC 720×480 16:9", export.DvdNote);
+        Assert.DoesNotContain("bars", export.DvdNote);
+        // The Convert tab doesn't offer it (it's for projects).
+        Assert.DoesNotContain(vm.Convert.Formats, f => f.IsDvd);
+        window.CloseWithoutPrompt();
+    }
+
     private static string SaveProject(EditorViewModel editor, string path)
     {
         Core.Model.ProjectSerializer.Save(editor.Project, path);

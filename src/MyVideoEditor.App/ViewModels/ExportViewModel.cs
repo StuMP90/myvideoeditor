@@ -30,7 +30,9 @@ public sealed partial class ExportViewModel : ObservableObject
         var h = project.Settings.Height;
         Sizes =
         [
-            new($"Project size ({project.Settings.Width}×{h})", null),
+            new(project.Settings.HasNonSquarePixels
+                ? $"Project size ({project.Settings.OutputWidth}×{h}, DVD-style pixels, shown {project.Settings.Width}×{h})"
+                : $"Project size ({project.Settings.Width}×{h})", null),
             .. new[] { 2160, 1440, 1080, 720, 480, 360 }.Where(x => x != h).Select(x => new SizeChoice($"{x}p{(x > h ? " (upscale)" : "")}", x)),
         ];
         _size = Sizes[0];
@@ -85,6 +87,33 @@ public sealed partial class ExportViewModel : ObservableObject
     public bool IsFinished => FinishedPath != null;
     public string FormatDescription => Format.Description;
     public bool FormatHasVideo => Format.HasVideo;
+    /// <summary>A size can be chosen (not for DVD-Video, which has the standard's size).</summary>
+    public bool ShowsSize => Format.HasVideo && !Format.IsDvd;
+
+    // ---- DVD-Video ------------------------------------------------------------------------------
+
+    public bool IsDvd => Format.IsDvd;
+
+    public string DvdNote
+    {
+        get
+        {
+            var dvd = DvdVideo.For(_project.Settings);
+            var (w, h) = dvd.RenderSize(_project.Settings);
+            var fits = w == dvd.ShownWidth && h == dvd.Height ? "" : $" The project's shape differs, so it gets black bars ({w}×{h} of {dvd.ShownWidth}×{dvd.Height} as shown).";
+            return $"This project becomes a DVD {dvd.Name} at {(dvd.Pal ? "25" : "29.97")} fps ({(dvd.Pal ? "PAL" : "NTSC")}, from its frame rate).{fits}";
+        }
+    }
+
+    /// <summary>dvdauthor is installed, so a disc folder can be made too.</summary>
+    public bool CanMakeDvdFolder { get; } = DvdVideo.AuthorProgram != null;
+
+    [ObservableProperty]
+    private bool _makeDvdFolder = true;
+
+    public string DvdFolderHint => OperatingSystem.IsWindows()
+        ? "To burn a disc that plays in DVD players, open the .mpg in a DVD authoring program such as DVDStyler (free)."
+        : "To burn a disc that plays in DVD players, author the .mpg into a DVD folder: install dvdauthor (e.g. sudo apt install dvdauthor) and it can be made here, or use DVDStyler.";
 
     /// <summary>Closes the window (set by the view).</summary>
     public Action? Close { get; set; }
@@ -96,6 +125,8 @@ public sealed partial class ExportViewModel : ObservableObject
             Size = Sizes.FirstOrDefault(s => s.Height == 480) ?? Size;
         OnPropertyChanged(nameof(FormatDescription));
         OnPropertyChanged(nameof(FormatHasVideo));
+        OnPropertyChanged(nameof(ShowsSize));
+        OnPropertyChanged(nameof(IsDvd));
     }
 
     partial void OnFinishedPathChanged(string? value) => OnPropertyChanged(nameof(IsFinished));
@@ -137,6 +168,7 @@ public sealed partial class ExportViewModel : ObservableObject
             Height = height,
             RangeStart = start > 0.0001 ? start : null,
             RangeEnd = end < _project.Duration - 0.0001 ? end : null,
+            MakeDvdFolder = Format.IsDvd && CanMakeDvdFolder && MakeDvdFolder,
         };
         _settings.ExportFormat = Format.Id;
         _settings.ExportQuality = Quality.ToString();
@@ -162,7 +194,8 @@ public sealed partial class ExportViewModel : ObservableObject
             FinishedPath = OutputPath;
             Progress = 100;
             var size = new FileInfo(OutputPath).Length;
-            ProgressText = $"Done in {FormatDuration(DateTime.UtcNow - started)} · {Shell.FormatSize(size)}";
+            ProgressText = $"Done in {FormatDuration(DateTime.UtcNow - started)} · {Shell.FormatSize(size)}" +
+                           (settings.MakeDvdFolder ? $" · DVD folder: {Path.GetFileName(ProjectExporter.DvdFolderFor(OutputPath))}" : "");
         }
         catch (OperationCanceledException)
         {

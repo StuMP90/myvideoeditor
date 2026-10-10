@@ -481,7 +481,8 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
             }
         }
         _settings.Save();
-        Status = added.Count > 0 ? $"Imported {added.Count} file(s)." : "";
+        Status = added.Count > 0 ? $"Imported {added.Count} file(s)." + (_adopted != null ? " " + _adopted : "") : "";
+        _adopted = null;
         if (withPictures.Count > 0)
             Status += $" {string.Join(", ", withPictures)}: {PicturesNotShown}";
         if (failed.Count > 0)
@@ -493,6 +494,9 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>The first video added to an empty project sets the project's size and frame rate.</summary>
+    /// <summary>What adopting a clip's settings did, for the import's status line (which follows it).</summary>
+    private string? _adopted;
+
     private void AdoptSettingsFrom(MediaInfo info)
     {
         if (Project.AllClips().Any() || !info.HasVideo || info.Kind == MediaKind.Image || info.Width < 16 || info.Height < 16)
@@ -500,9 +504,12 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         var s = Project.Settings.Clone();
         s.Width = info.Width & ~1;
         s.Height = info.Height & ~1;
+        // Non-square pixels (DVDs): edit at the shown size, export at the stored one.
+        s.OutputWidth = info.StoredWidth > 0 && info.StoredWidth != s.Width ? info.StoredWidth & ~1 : 0;
         s.FrameRate = Math.Round(info.FrameRate, 3) is > 0 and <= 120 ? Math.Round(info.FrameRate, 3) : 30;
         Session.Editor.UpdateSettings(s);
-        Status = $"Project set to {s.Width}×{s.Height} at {s.FrameRate:0.##} fps to match {Path.GetFileName(info.Path)}.";
+        Status = _adopted = $"Project set to {s.Width}×{s.Height} at {s.FrameRate:0.##} fps to match {Path.GetFileName(info.Path)}" +
+                            (s.HasNonSquarePixels ? $" (stored as {s.OutputWidth}×{s.Height} with non-square pixels, as on a DVD)." : ".");
     }
 
     [RelayCommand]
@@ -512,7 +519,7 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         if (item == null)
             return;
         if (Project.FindMedia(item.Id) is { } media && !Project.AllClips().Any() && media.HasVideo && media.Kind == MediaKind.Video)
-            AdoptSettingsFrom(new MediaInfo { Path = media.Path, HasVideo = true, Kind = media.Kind, Width = media.Width, Height = media.Height, FrameRate = media.FrameRate });
+            AdoptSettingsFrom(new MediaInfo { Path = media.Path, HasVideo = true, Kind = media.Kind, Width = media.Width, Height = media.Height, StoredWidth = media.StoredWidth, FrameRate = media.FrameRate });
         var id = Session.Editor.AddMediaClip(item.Id, Playhead);
         Select(id);
     }

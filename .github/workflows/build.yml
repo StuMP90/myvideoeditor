@@ -42,7 +42,7 @@ jobs:
       # software Vulkan, so the GPU upscaling tests run (slowly) without a graphics card.
       - name: Install Xvfb and software Vulkan
         run: |
-          sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1
+          sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers libvulkan1 dvdauthor
           echo "MYVIDEOEDITOR_ALLOW_SOFTWARE_GPU=1" >> "$GITHUB_ENV"
           echo "MYVIDEOEDITOR_TOOLS_DIR=$RUNNER_TEMP/upscalers" >> "$GITHUB_ENV"
       # The upscaler downloads are pinned by checksum, so they can be cached between runs.

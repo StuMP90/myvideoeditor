@@ -61,9 +61,14 @@ Both include FFmpeg, so there's nothing else to install.
 - **Projects**: saved as `.mveproj` (JSON) that refer to your media. Media moved together with a
   project is found again. Unsaved work is autosaved every minute and offered back after a crash.
   The first video added sets the project's size and frame rate; presets include 4K, 1080p, 720p,
-  vertical (Shorts/Reels/TikTok) and square.
-- **Export**: MP4 (H.264, H.265, AV1), WebM (VP9, AV1), MKV, MOV (ProRes 422), animated GIF (with
-  a proper palette), and audio only (MP3, M4A, WAV, FLAC, Opus). Three quality levels, any output
+  DVD (NTSC 720×480 and PAL 720×576, in 4:3 and 16:9), vertical (Shorts/Reels/TikTok) and square.
+  DVD video has non-square pixels: the project is edited at the size it's shown (640×480 for NTSC
+  4:3, 854×480 for 16:9, 768×576 and 1024×576 for PAL) and exported at 720 across, marked to be
+  shown at that size. A DVD clip added first sets this up by itself.
+- **Export**: MP4 (H.264, H.265, AV1), WebM (VP9, AV1), MKV, MOV (ProRes 422), **DVD-Video**
+  (MPEG-2 and AC-3 sound at DVD's own size and frame rate, NTSC or PAL from the project's frame
+  rate, 4:3 or 16:9 from its shape, other shapes with black bars; with dvdauthor installed it also
+  makes the disc's VIDEO_TS folder, ready to burn), animated GIF (with a proper palette), and audio only (MP3, M4A, WAV, FLAC, Opus). Three quality levels, any output
   size (exporting larger upscales with Lanczos; titles are redrawn sharp at the new size), and
   part of the timeline only. Single frames save as PNG.
 

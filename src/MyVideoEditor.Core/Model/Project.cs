@@ -61,20 +61,42 @@ public sealed class ProjectSettings
     /// <summary>Canvas colour where no clip covers it, "#RRGGBB".</summary>
     public string BackgroundColor { get; set; } = "#000000";
 
+    /// <summary>
+    /// For video stored with non-square pixels (DVDs): the width exports are stored at, with the pixels
+    /// marked to be shown wider or narrower, so players show <see cref="Width"/>×<see cref="Height"/>.
+    /// 0 = square pixels. <see cref="Width"/>×<see cref="Height"/> stays the picture as seen, which
+    /// editing, titles and previews use.
+    /// </summary>
+    public int OutputWidth { get; set; }
+
+    [JsonIgnore]
+    public bool HasNonSquarePixels => OutputWidth > 0 && OutputWidth != Width;
+
     public ProjectSettings Clone() => (ProjectSettings)MemberwiseClone();
 
-    public static readonly IReadOnlyList<(string Name, int Width, int Height)> CommonSizes =
+    public static readonly IReadOnlyList<SizePreset> CommonSizes =
     [
-        ("4K UHD (3840×2160)", 3840, 2160),
-        ("1440p (2560×1440)", 2560, 1440),
-        ("1080p (1920×1080)", 1920, 1080),
-        ("720p (1280×720)", 1280, 720),
-        ("480p (854×480)", 854, 480),
-        ("Vertical 1080×1920 (Shorts, Reels, TikTok)", 1080, 1920),
-        ("Square 1080×1080", 1080, 1080),
-        ("Portrait 1080×1350", 1080, 1350),
+        new("4K UHD (3840×2160)", 3840, 2160),
+        new("1440p (2560×1440)", 2560, 1440),
+        new("1080p (1920×1080)", 1920, 1080),
+        new("720p (1280×720)", 1280, 720),
+        new("480p (854×480)", 854, 480),
+        // DVDs store 720 pixels across, shown narrower (4:3) or wider (16:9).
+        new("DVD NTSC 4:3 (720×480)", 640, 480, 720, 29.97),
+        new("DVD NTSC 16:9 widescreen (720×480)", 854, 480, 720, 29.97),
+        new("DVD PAL 4:3 (720×576)", 768, 576, 720, 25),
+        new("DVD PAL 16:9 widescreen (720×576)", 1024, 576, 720, 25),
+        new("Vertical 1080×1920 (Shorts, Reels, TikTok)", 1080, 1920),
+        new("Square 1080×1080", 1080, 1080),
+        new("Portrait 1080×1350", 1080, 1350),
     ];
 }
+
+/// <summary>
+/// A project size: the picture as seen (<paramref name="Width"/>×<paramref name="Height"/>), the width
+/// it's stored at when its pixels aren't square (DVDs), and the frame rate that goes with it.
+/// </summary>
+public sealed record SizePreset(string Name, int Width, int Height, int OutputWidth = 0, double? FrameRate = null);
 
 /// <summary>A media file the project uses, with what was known about it when it was imported.</summary>
 public sealed class MediaReference
@@ -87,6 +109,8 @@ public sealed class MediaReference
     public bool HasVideo { get; set; }
     /// <summary>Where the picture ends (seconds); 0 if unknown (it can end before the sound).</summary>
     public double VideoEnd { get; set; }
+    /// <summary>The width the file stores its pictures at, if its pixels aren't square (DVDs: 720); 0 otherwise.</summary>
+    public int StoredWidth { get; set; }
     public bool HasAudio { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
@@ -99,6 +123,7 @@ public sealed class MediaReference
         Kind = info.Kind,
         Duration = info.Duration,
         HasVideo = info.HasVideo,
+        StoredWidth = info.StoredWidth,
         VideoEnd = info.VideoEnd,
         HasAudio = info.HasAudio,
         Width = info.Width,

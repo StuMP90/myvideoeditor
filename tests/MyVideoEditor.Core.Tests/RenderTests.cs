@@ -588,6 +588,115 @@ public class RenderTests
         Assert.True(late.X < early.X, $"text moves: x {early.X:0} → {late.X:0}");
     }
 
+    [Theory]
+    [InlineData("8/9", 480, 640)]    // NTSC 4:3
+    [InlineData("32/27", 480, 854)]  // NTSC 16:9
+    [InlineData("16/15", 576, 768)]  // PAL 4:3
+    [InlineData("64/45", 576, 1024)] // PAL 16:9
+    public async Task Dvd_clips_are_seen_at_their_shown_size_and_remember_the_stored_one(string sar, int height, int shownWidth)
+    {
+        var info = await MediaProbe.Default.ProbeAsync(await TestMedia.DvdAsync(sar, height));
+        Assert.Equal((shownWidth, height), (info.Width, info.Height));
+        Assert.Equal(720, info.StoredWidth);
+        Assert.Equal(0, (await MediaProbe.Default.ProbeAsync(await TestMedia.ColorAsync("red", 1))).StoredWidth);
+    }
+
+    [Fact]
+    public async Task Dvd_projects_export_at_720_with_dvd_shaped_pixels()
+    {
+        var session = new EditSession(Project.CreateDefault("dvd", new ProjectSettings { Width = 640, Height = 480, OutputWidth = 720, FrameRate = 29.97 }));
+        var red = await ImportAsync(session, await TestMedia.DvdAsync("8/9"));
+        session.Editor.AddMediaClip(red, 0);
+        var output = await ExportAsync(session);
+        var info = await MediaProbe.Default.ProbeAsync(output);
+        Assert.Equal((640, 480), (info.Width, info.Height)); // shown 4:3
+        Assert.Equal(720, info.StoredWidth);                  // stored 720 across
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 0.5, 700, 240), Red), "filled to the edge, no bars");
+
+        // Exported at another size, it's square pixels again.
+        var smaller = await ExportAsync(session, settings: new ExportSettings { Format = OutputFormats.Mp4H264, Width = 480, Height = 360 });
+        Assert.Equal(0, (await MediaProbe.Default.ProbeAsync(smaller)).StoredWidth);
+        // The setting is kept with the project.
+        Assert.Equal(720, ProjectSerializer.Deserialize(ProjectSerializer.Serialize(session.Project)).Settings.OutputWidth);
+    }
+
+    /// <summary>ffprobe's view of a file's first video and audio streams (key=value lines).</summary>
+    private static Dictionary<string, string> Streams(string file)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo(TestMedia.Locator.FfprobePath) { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "-v", "error", "-show_entries", "format=format_name:stream=codec_type,codec_name,width,height,sample_aspect_ratio,display_aspect_ratio,r_frame_rate,sample_rate", "-of", "flat", file })
+            psi.ArgumentList.Add(a);
+        using var p = ChildProcess.Start(psi);
+        var text = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        // Streams are numbered in file order (a DVD file starts with navigation data); name them by type.
+        var raw = text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => (Key: line[..line.IndexOf('=')], Value: line[(line.IndexOf('=') + 1)..].Trim('"'))).ToList();
+        var types = raw.Where(r => r.Key.EndsWith(".codec_type")).ToDictionary(r => r.Key[..^"codec_type".Length], r => r.Value);
+        var result = new Dictionary<string, string>();
+        foreach (var (key, value) in raw)
+        {
+            var prefix = types.Keys.FirstOrDefault(key.StartsWith);
+            result[prefix != null ? types[prefix] + "." + key[prefix.Length..] : key.Replace("format.", "")] = value;
+        }
+        return result;
+    }
+
+    [Theory]
+    [InlineData(1280, 720, 30, "720", "480", "32:27", "16:9", "30000/1001")] // a 720p 30 fps project: NTSC widescreen
+    [InlineData(640, 480, 25, "720", "576", "16:15", "4:3", "25/1")]         // a 4:3 25 fps project: PAL 4:3
+    public async Task Dvd_video_exports_meet_the_dvd_standard(int w, int h, double fps, string width, string height, string sar, string dar, string rate)
+    {
+        var session = new EditSession(Project.CreateDefault("dvd", new ProjectSettings { Width = w, Height = h, FrameRate = fps }));
+        var red = await ImportAsync(session, await TestMedia.ColorAsync("red", 2, w, h));
+        session.Editor.AddMediaClip(red, 0);
+        var output = await ExportAsync(session, OutputFormats.DvdVideo);
+        Assert.EndsWith(".mpg", output);
+        var info = Streams(output);
+        Assert.Equal("mpeg", info["format_name"]);
+        Assert.Equal(("mpeg2video", width, height, sar, dar, rate),
+            (info["video.codec_name"], info["video.width"], info["video.height"], info["video.sample_aspect_ratio"], info["video.display_aspect_ratio"], info["video.r_frame_rate"]));
+        Assert.Equal(("ac3", "48000"), (info["audio.codec_name"], info["audio.sample_rate"]));
+        // The picture fills DVD's frame (same shape, so no bars).
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 1, 4, 100), Red, 40), $"left edge {TestMedia.PixelAt(output, 1, 4, 100)}");
+    }
+
+    [Fact]
+    public async Task Other_shapes_go_onto_a_dvd_with_bars_rather_than_stretched()
+    {
+        // A vertical video: pillarboxed into a 4:3 NTSC DVD, red in the middle, black at the sides.
+        var session = new EditSession(Project.CreateDefault("tall", new ProjectSettings { Width = 360, Height = 640, FrameRate = 30 }));
+        var red = await ImportAsync(session, await TestMedia.ColorAsync("red", 1, 360, 640));
+        session.Editor.AddMediaClip(red, 0);
+        var output = await ExportAsync(session, OutputFormats.DvdVideo);
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 0.5, 360, 240), Red, 40), $"middle {TestMedia.PixelAt(output, 0.5, 360, 240)}");
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 0.5, 20, 240), (0, 0, 0), 30), $"side {TestMedia.PixelAt(output, 0.5, 20, 240)}");
+        Assert.Equal((DvdVideo.StoredWidth, 480), ((await MediaProbe.Default.ProbeAsync(output)).StoredWidth, 480));
+    }
+
+    [Theory]
+    [InlineData(1280, 720, 30, "16:9", 480)] // NTSC widescreen
+    [InlineData(640, 480, 25, "4:3", 576)]   // PAL 4:3
+    public async Task Dvd_folders_are_made_with_dvdauthor_when_installed(int w, int h, double fps, string aspect, int dvdHeight)
+    {
+        if (DvdVideo.AuthorProgram == null)
+            return; // dvdauthor isn't installed here
+        var session = new EditSession(Project.CreateDefault("disc", new ProjectSettings { Width = w, Height = h, FrameRate = fps }));
+        var red = await ImportAsync(session, await TestMedia.ColorAsync("red", 2, w, h));
+        session.Editor.AddMediaClip(red, 0);
+        var dir = TestMedia.NewOutputDirectory();
+        var mpeg = Path.Combine(dir, "Holiday.mpg");
+        await new ProjectExporter().ExportAsync(session.Project, mpeg, new ExportSettings { Format = OutputFormats.DvdVideo, MakeDvdFolder = true });
+        var folder = ProjectExporter.DvdFolderFor(mpeg);
+        Assert.Equal(Path.Combine(dir, "Holiday DVD"), folder);
+        Assert.True(File.Exists(Path.Combine(folder, "VIDEO_TS", "VIDEO_TS.IFO")));
+        var vob = Assert.Single(Directory.GetFiles(Path.Combine(folder, "VIDEO_TS"), "VTS_01_*.VOB"));
+        Assert.True(Directory.Exists(Path.Combine(folder, "AUDIO_TS")));
+        // The disc's video is the DVD-standard stream.
+        var info = Streams(vob);
+        Assert.Equal(("mpeg2video", dvdHeight.ToString(), aspect, "ac3"), (info["video.codec_name"], info["video.height"], info["video.display_aspect_ratio"], info["audio.codec_name"]));
+    }
+
     [Fact]
     public async Task Fade_in_starts_from_the_background()
     {

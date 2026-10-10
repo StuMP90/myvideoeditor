@@ -35,6 +35,8 @@ public sealed record OutputFormat
     public double? MaxFrameRate { get; init; }
     /// <summary>A single RGB picture (conversion previews), not a video.</summary>
     public bool IsStill { get; init; }
+    /// <summary>DVD-Video: the frame size, rate and pixel shape are the DVD standard's (see <see cref="DvdVideo"/>), not the project's.</summary>
+    public bool IsDvd { get; init; }
 
     public bool HasVideo => VideoEncoders.Count > 0 || IsGif;
     public bool HasAudio => AudioEncoders.Count > 0;
@@ -98,7 +100,25 @@ public static class OutputFormats
     private static readonly EncoderChoice Vorbis = new("libvorbis", q => Q(q, ["-q:a", "8"], ["-q:a", "5"], ["-q:a", "2"]));
     private static readonly EncoderChoice Lame = new("libmp3lame", q => Q(q, ["-q:a", "0"], ["-q:a", "2"], ["-q:a", "6"]));
     private static readonly EncoderChoice Pcm16 = new("pcm_s16le", _ => []);
+    // DVD limits: video up to 9.8 Mbit/s (9 here, leaving room for sound), a 1.8 MB buffer; AC-3 sound at 48 kHz.
+    private static readonly EncoderChoice DvdMpeg2 = new("mpeg2video", q => [
+        "-b:v", Q(q, ["8000k"], ["6000k"], ["4000k"])[0], "-maxrate", "9000k", "-minrate", "0", "-bufsize", "1835k", "-bf", "2"]);
+    private static readonly EncoderChoice DvdAc3 = new("ac3", q => ["-b:a", Q(q, ["448k"], ["384k"], ["224k"])[0], "-ar", "48000", "-ac", "2"]);
     private static readonly EncoderChoice Flac = new("flac", _ => []);
+
+    /// <summary>
+    /// An MPEG-2 program stream that meets the DVD-Video standard (NTSC or PAL, chosen by the project's
+    /// frame rate; 4:3 or 16:9 by its shape), ready for DVD authoring.
+    /// </summary>
+    public static readonly OutputFormat DvdVideo = new()
+    {
+        Id = "dvd-video", Label = "DVD-Video (MPEG-2)", Extension = ".mpg",
+        Description = "For burning to a DVD that plays in DVD players: MPEG-2 at DVD's own size and frame rate (NTSC 720×480 at 29.97 fps, " +
+                      "or PAL 720×576 at 25 fps, from the project's frame rate), 4:3 or 16:9 by the project's shape, with AC-3 sound. " +
+                      "About 2 hours fit on a single-layer disc at Small quality, 1½ at Standard, 1 at High.",
+        VideoEncoders = [DvdMpeg2], AudioEncoders = [DvdAc3], IsDvd = true,
+        ExtraArguments = ["-f", "dvd", "-muxrate", "10080000", "-packetsize", "2048"],
+    };
 
     public static readonly OutputFormat Mp4H264 = new()
     {
@@ -201,7 +221,7 @@ public static class OutputFormats
     };
 
     public static IReadOnlyList<OutputFormat> All { get; } =
-        [Mp4H264, Mp4H265, Mp4Av1, WebmVp9, WebmAv1, MkvH264, MovProRes, Gif, Mp3, M4a, Wav, FlacAudio, OggOpus];
+        [Mp4H264, Mp4H265, Mp4Av1, WebmVp9, WebmAv1, MkvH264, MovProRes, DvdVideo, Gif, Mp3, M4a, Wav, FlacAudio, OggOpus];
 
     public static IEnumerable<OutputFormat> VideoFormats => All.Where(f => f.HasVideo);
     public static IEnumerable<OutputFormat> AudioFormats => All.Where(f => !f.HasVideo);

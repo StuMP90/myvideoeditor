@@ -105,8 +105,12 @@ public sealed class MediaProbe
             var width = (int)Num(v, "width");
             var height = (int)Num(v, "height");
             var sar = ParseRatio(Str(v, "sample_aspect_ratio"));
+            var storedWidth = 0;
             if (sar > 0 && Math.Abs(sar - 1) > 0.001)
+            {
+                storedWidth = width;
                 width = (int)Math.Round(width * sar / 2) * 2;
+            }
             var rotation = Rotation(v);
             if (rotation is 90 or 270)
                 (width, height) = (height, width);
@@ -132,6 +136,7 @@ public sealed class MediaProbe
                 ColorTransfer = Tag(Str(v, "color_transfer")),
                 VideoCodec = Str(v, "codec_name"),
                 PixelFormat = Str(v, "pix_fmt"),
+                StoredWidth = rotation is 90 or 270 ? 0 : storedWidth,
                 VideoEnd = isImage || Num(v, "duration") <= 0 ? 0
                     : Math.Max(0, Num(v, "start_time") - Num(format, "start_time")) + Num(v, "duration"),
             };

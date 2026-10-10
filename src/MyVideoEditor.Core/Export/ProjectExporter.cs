@@ -15,6 +15,8 @@ public sealed record ExportSettings
     /// <summary>Part of the timeline to export; null = all of it.</summary>
     public double? RangeStart { get; init; }
     public double? RangeEnd { get; init; }
+    /// <summary>DVD-Video: also make a disc folder (VIDEO_TS) next to the file, with dvdauthor.</summary>
+    public bool MakeDvdFolder { get; init; }
 }
 
 /// <summary>Renders a project to a file.</summary>
@@ -39,12 +41,15 @@ public sealed class ProjectExporter
     {
         var caps = _locator.Capabilities;
         var format = settings.Format;
+        // DVD-Video: drawn at DVD's shown size (the project fitted inside it), whatever size was asked for.
+        var dvd = format.IsDvd ? DvdVideo.For(project.Settings) : null;
+        var dvdSize = dvd?.RenderSize(project.Settings);
         var plan = RenderPlanBuilder.Build(project, new RenderOptions
         {
             RangeStart = settings.RangeStart ?? 0,
             RangeEnd = settings.RangeEnd,
-            Width = settings.Width,
-            Height = settings.Height,
+            Width = dvdSize?.Width ?? settings.Width,
+            Height = dvdSize?.Height ?? settings.Height,
             IncludeVideo = format.HasVideo,
             IncludeAudio = format.HasAudio,
             Capabilities = caps,
@@ -56,7 +61,16 @@ public sealed class ProjectExporter
         {
             plan = WithGifPalette(plan, format.MaxFrameRate ?? 15);
         }
-        else if (format.HasVideo)
+        else if (dvd != null)
+        {
+            plan = dvd.Apply(plan);
+            output.AddRange(dvd.OutputArguments());
+        }
+        else if (format.HasVideo && project.Settings.HasNonSquarePixels && plan.Width == project.Settings.Width)
+        {
+            plan = WithStoredWidth(plan, project.Settings.OutputWidth);
+        }
+        if (format.HasVideo && dvd == null && !format.IsGif)
         {
             output.AddRange(["-r", RenderPlan.F(plan.FrameRate)]);
         }
@@ -79,8 +93,14 @@ public sealed class ProjectExporter
         {
             TryDelete(partial);
         }
+        if (dvd != null && settings.MakeDvdFolder)
+            await dvd.MakeFolderAsync(full, DvdFolderFor(full), cancellationToken).ConfigureAwait(false);
         return plan.Warnings;
     }
+
+    /// <summary>Where a DVD export's disc folder goes: next to the file, named after it.</summary>
+    public static string DvdFolderFor(string mpegPath) =>
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(mpegPath))!, Path.GetFileNameWithoutExtension(mpegPath) + " DVD");
 
     /// <summary>Saves one frame of the timeline as a PNG (for bug reports and thumbnails).</summary>
     public async Task ExportFrameAsync(Project project, double time, string outputPath, int? width = null, int? height = null,
@@ -107,6 +127,17 @@ public sealed class ProjectExporter
             Capabilities = caps,
             ScaleFlags = "lanczos",
         });
+    }
+
+    /// <summary>
+    /// Stores the picture <paramref name="storedWidth"/> pixels wide, marked to be shown at its own width
+    /// (non-square pixels, as on a DVD: 640×480 stored as 720×480).
+    /// </summary>
+    internal static RenderPlan WithStoredWidth(RenderPlan plan, int storedWidth)
+    {
+        var graph = plan.FilterGraph +
+                    $";\n[{plan.VideoOutput}]scale={storedWidth}:{plan.Height}:flags=lanczos,setsar={plan.Width}/{storedWidth}[stored]";
+        return plan with { FilterGraph = graph, VideoOutput = "stored" };
     }
 
     /// <summary>GIFs look far better with a palette made from the clip itself.</summary>

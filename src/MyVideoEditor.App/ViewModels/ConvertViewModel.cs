@@ -80,7 +80,8 @@ public sealed partial class ConvertViewModel : ObservableObject
     {
         _settings = settings;
         _dialogs = dialogs;
-        Formats = OutputFormats.Available(FfmpegLocator.Default.Capabilities).ToList();
+        // DVD-Video is for projects (Edit tab → Export), which fit the picture to DVD's standard sizes.
+        Formats = OutputFormats.Available(FfmpegLocator.Default.Capabilities).Where(f => !f.IsDvd).ToList();
         _format = Formats.FirstOrDefault(f => f.Id == settings.ConvertFormat) ?? Formats.FirstOrDefault() ?? OutputFormats.Mp4H264;
         _content = Enum.TryParse<ContentType>(settings.ConvertContent, out var content) ? content : ContentType.Camera;
         Scalings = UpscaleMethods.All.Select(m => new UpscaleOptionViewModel(m)).ToList();

@@ -18,19 +18,21 @@ public static class ProjectSettingsWindow
         var current = editor.Project.Settings;
         var sizes = ProjectSettings.CommonSizes.Select(s => s.Name).Append("Custom").ToList();
         var sizeBox = new ComboBox { ItemsSource = sizes, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var match = ProjectSettings.CommonSizes.FirstOrDefault(s => s.Width == current.Width && s.Height == current.Height);
-        sizeBox.SelectedItem = match.Name ?? "Custom";
+        var match = ProjectSettings.CommonSizes.FirstOrDefault(s => s.Width == current.Width && s.Height == current.Height
+                                                                     && s.OutputWidth == (current.HasNonSquarePixels ? current.OutputWidth : 0));
+        sizeBox.SelectedItem = match?.Name ?? "Custom";
         var width = new NumericUpDown { Value = current.Width, Minimum = 16, Maximum = 8192, Increment = 2, FormatString = "0" };
         var height = new NumericUpDown { Value = current.Height, Minimum = 16, Maximum = 8192, Increment = 2, FormatString = "0" };
-        sizeBox.SelectionChanged += (_, _) =>
+        // Non-square pixels (DVD): the width it's stored at. Kept until the size is changed by hand.
+        var outputWidth = current.HasNonSquarePixels ? current.OutputWidth : 0;
+        var storedNote = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.65, FontSize = 12 };
+        var settingPreset = false;
+        void ShowStored()
         {
-            var preset = ProjectSettings.CommonSizes.FirstOrDefault(s => s.Name == sizeBox.SelectedItem as string);
-            if (preset.Name != null)
-            {
-                width.Value = preset.Width;
-                height.Value = preset.Height;
-            }
-        };
+            storedNote.IsVisible = outputWidth > 0;
+            storedNote.Text = $"Stored as {outputWidth}×{(int)(height.Value ?? 0)} with non-square pixels, as DVDs are: players show it " +
+                              $"{(int)(width.Value ?? 0)}×{(int)(height.Value ?? 0)}. You edit at that shown size.";
+        }
         var fps = new ComboBox
         {
             ItemsSource = FrameRates.Select(f => f.ToString("0.###", CultureInfo.InvariantCulture)).ToList(),
@@ -39,6 +41,32 @@ public static class ProjectSettingsWindow
         };
         if (fps.SelectedItem == null)
             fps.SelectedIndex = 4;
+        sizeBox.SelectionChanged += (_, _) =>
+        {
+            var preset = ProjectSettings.CommonSizes.FirstOrDefault(s => s.Name == sizeBox.SelectedItem as string);
+            if (preset != null)
+            {
+                settingPreset = true;
+                width.Value = preset.Width;
+                height.Value = preset.Height;
+                settingPreset = false;
+                outputWidth = preset.OutputWidth;
+                if (preset.FrameRate is { } presetRate)
+                    fps.SelectedItem = presetRate.ToString("0.###", CultureInfo.InvariantCulture);
+                ShowStored();
+            }
+        };
+        void SizeEdited()
+        {
+            if (settingPreset)
+                return;
+            outputWidth = 0; // a size typed in: square pixels
+            sizeBox.SelectedItem = "Custom";
+            ShowStored();
+        }
+        width.ValueChanged += (_, _) => SizeEdited();
+        height.ValueChanged += (_, _) => SizeEdited();
+        ShowStored();
         var background = new ColorPicker { Color = Color.TryParse(current.BackgroundColor, out var c) ? c : Colors.Black, IsAlphaEnabled = false, HorizontalAlignment = HorizontalAlignment.Left };
 
         var dialog = new Window
@@ -75,6 +103,7 @@ public static class ProjectSettingsWindow
             {
                 Row("Size", sizeBox),
                 Row("", sizeRow),
+                Row("", storedNote),
                 Row("Frame rate", fps),
                 Row("Background", background),
                 new TextBlock
@@ -94,6 +123,7 @@ public static class ProjectSettingsWindow
         var settings = current.Clone();
         settings.Width = (int)(width.Value ?? current.Width) & ~1;
         settings.Height = (int)(height.Value ?? current.Height) & ~1;
+        settings.OutputWidth = outputWidth;
         if (double.TryParse(fps.SelectedItem as string, NumberStyles.Float, CultureInfo.InvariantCulture, out var rate))
             settings.FrameRate = rate;
         var col = background.Color;

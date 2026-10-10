@@ -164,6 +164,15 @@ public static class TestMedia
         return path;
     }
 
+    /// <summary>A DVD-style clip: 720 pixels across with non-square pixels (sar 8/9 shows 4:3, 32/27 shows 16:9).</summary>
+    public static Task<string> DvdAsync(string sar, int height = 480) =>
+        CachedAsync($"dvd-{sar.Replace('/', '-')}-{height}.mp4", path =>
+        [
+            "-f", "lavfi", "-i", $"color=c=red:s=720x{height}:r=30:d=1,setsar={sar}",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+            .. VideoCodec(), "-c:a", "aac", "-y", path,
+        ]);
+
     public static Task<string> ImageAsync(string color, int width = 400, int height = 300) =>
         CachedAsync($"image-{color}-{width}x{height}.png", path =>
             ["-f", "lavfi", "-i", $"color=c={color}:s={width}x{height}:d=1", "-frames:v", "1", "-y", path]);
@@ -206,7 +215,9 @@ public static class TestMedia
     {
         var info = MediaProbe.Default.ProbeAsync(file).GetAwaiter().GetResult();
         var psi = new ProcessStartInfo(Locator.FfmpegPath) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        foreach (var a in new[] { "-v", "error", "-ss", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture), "-i", file, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1" })
+        foreach (var a in new[] { "-v", "error", "-ss", seconds.ToString(System.Globalization.CultureInfo.InvariantCulture), "-i", file, "-frames:v", "1",
+                     // At the size it's shown (non-square pixels, as on DVDs, are stored at another width).
+                     "-vf", $"scale={info.Width}:{info.Height}", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1" })
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
         _ = p.StandardError.ReadToEndAsync();

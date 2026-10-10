@@ -26,6 +26,11 @@ public sealed record MediaInfo
     /// <see cref="Duration"/>, as in many downloaded videos whose sound runs on a little longer.
     /// </summary>
     public double VideoEnd { get; init; }
+    /// <summary>
+    /// The width the pictures are stored at when the pixels aren't square (a DVD's 720, shown as 640 or
+    /// 854): <see cref="Width"/> is the width as seen. 0 when the pixels are square.
+    /// </summary>
+    public int StoredWidth { get; init; }
     /// <summary>Display size: after the rotation metadata (phone videos) and sample aspect ratio are applied.</summary>
     public int Width { get; init; }
     public int Height { get; init; }
