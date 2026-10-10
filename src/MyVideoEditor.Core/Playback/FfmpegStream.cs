@@ -25,7 +25,7 @@ internal sealed class FfmpegStream : IDisposable
         psi.ArgumentList.Add("error");
         foreach (var a in args)
             psi.ArgumentList.Add(a);
-        _process = Process.Start(psi) ?? throw new InvalidOperationException("Couldn't start ffmpeg.");
+        _process = ChildProcess.Start(psi, keepInput: true, isFfmpeg: true);
         _ = Task.Run(async () =>
         {
             try

@@ -135,29 +135,50 @@ public sealed class DialogService
     }
 
     /// <summary>File types for open/save pickers.</summary>
-    public static readonly FilePickerFileType MediaFiles = new("Video, audio and images")
+    public static readonly FilePickerFileType MediaFiles = new("Video, audio, images and animations")
     {
         Patterns =
         [
             "*.mp4", "*.mov", "*.mkv", "*.webm", "*.avi", "*.m4v", "*.mts", "*.m2ts", "*.ts", "*.wmv", "*.flv", "*.mpg", "*.mpeg", "*.3gp", "*.gif",
             "*.mp3", "*.wav", "*.m4a", "*.aac", "*.flac", "*.ogg", "*.opus", "*.wma", "*.aif", "*.aiff",
             "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp", "*.tif", "*.tiff",
+            "*.json", "*.lottie",
         ],
-        MimeTypes = ["video/*", "audio/*", "image/*"],
+        MimeTypes = ["video/*", "audio/*", "image/*", "application/json"],
+    };
+
+    /// <summary>Pictures a title can show (what SkiaSharp decodes).</summary>
+    public static readonly FilePickerFileType PictureFiles = new("Pictures")
+    {
+        Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp", "*.gif"],
+        MimeTypes = ["image/*"],
     };
 
     public static readonly FilePickerFileType ProjectFiles = new("MyVideoEditor projects") { Patterns = ["*.mveproj"] };
 
-    public async Task<IReadOnlyList<string>> OpenFilesAsync(string title, bool multiple, params FilePickerFileType[] types)
+    /// <summary>
+    /// Asks for files, starting in the first of <paramref name="folders"/> that exists (the last folder
+    /// used, typically), or the system's default if none do.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> OpenFilesAsync(string title, bool multiple, IEnumerable<string?> folders, params FilePickerFileType[] types)
     {
         var files = await _owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = title,
             AllowMultiple = multiple,
             FileTypeFilter = types.Length > 0 ? [.. types, FilePickerFileTypes.All] : null,
+            SuggestedStartLocation = await StartFolderAsync(folders),
         });
         return files.Select(f => f.TryGetLocalPath()).OfType<string>().ToList();
     }
+
+    /// <summary>The first folder that exists, as a picker's start location.</summary>
+    private async Task<IStorageFolder?> StartFolderAsync(IEnumerable<string?> folders) =>
+        ExistingFolder(folders) is { } folder ? await _owner.StorageProvider.TryGetFolderFromPathAsync(folder) : null;
+
+    /// <summary>The first of the folders that exists (null if none do).</summary>
+    internal static string? ExistingFolder(IEnumerable<string?> folders) =>
+        folders.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f) && Directory.Exists(f));
 
     public async Task<string?> SaveFileAsync(string title, string suggestedName, string extension, string typeName, string? folder = null)
     {
@@ -169,8 +190,7 @@ public sealed class DialogService
             ShowOverwritePrompt = true,
             FileTypeChoices = [new FilePickerFileType(typeName) { Patterns = ["*" + extension] }],
         };
-        if (folder != null && Directory.Exists(folder))
-            options.SuggestedStartLocation = await _owner.StorageProvider.TryGetFolderFromPathAsync(folder);
+        options.SuggestedStartLocation = await StartFolderAsync([folder]);
         var file = await _owner.StorageProvider.SaveFilePickerAsync(options);
         var path = file?.TryGetLocalPath();
         if (path != null && !path.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
@@ -178,9 +198,13 @@ public sealed class DialogService
         return path;
     }
 
-    public async Task<string?> PickFolderAsync(string title)
+    public async Task<string?> PickFolderAsync(string title, IEnumerable<string?> startIn)
     {
-        var folders = await _owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title });
+        var folders = await _owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = title,
+            SuggestedStartLocation = await StartFolderAsync(startIn),
+        });
         return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
     }
 

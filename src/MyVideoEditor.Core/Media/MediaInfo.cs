@@ -5,6 +5,8 @@ public enum MediaKind
     Video,
     Audio,
     Image,
+    /// <summary>A Lottie animation (.json or .lottie), drawn frame by frame by Skottie rather than read by ffmpeg.</summary>
+    Animation,
 }
 
 /// <summary>What ffprobe found in a media file.</summary>

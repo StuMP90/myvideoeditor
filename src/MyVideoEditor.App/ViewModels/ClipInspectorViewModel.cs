@@ -51,7 +51,7 @@ public sealed partial class ClipInspectorViewModel : ObservableObject
 
     public string Heading => Clip switch
     {
-        MediaClip => MediaFile?.Kind switch { MediaKind.Audio => "Audio clip", MediaKind.Image => "Image", _ => "Video clip" },
+        MediaClip => MediaFile?.Kind switch { MediaKind.Audio => "Audio clip", MediaKind.Image => "Image", MediaKind.Animation => "Animation (Lottie)", _ => "Video clip" },
         TitleClip => "Title",
         AnnotationClip a => a.Shape switch
         {
@@ -339,6 +339,214 @@ public sealed partial class ClipInspectorViewModel : ObservableObject
         set => Set("Background colour", c => ((TitleClip)c).BackgroundColor = Hex(value), "bgcolor");
     }
 
+    // ---- title picture --------------------------------------------------------------------
+
+    /// <summary>Asks for a picture file (set by the editor, which owns the dialogs).</summary>
+    public Func<Task<string?>>? PickImage { get; set; }
+
+    public bool HasImage => Title is { ImagePath.Length: > 0 };
+    public string ImageName => Title is { ImagePath.Length: > 0 } t ? Path.GetFileName(t.ImagePath) : "No picture";
+    public bool ImageMissing => Title is { ImagePath.Length: > 0 } t && !File.Exists(t.ImagePath);
+
+    [RelayCommand]
+    private async Task ChooseImage()
+    {
+        if (PickImage != null && await PickImage() is { } path)
+            Set("Title picture", c => ((TitleClip)c).ImagePath = path);
+    }
+
+    [RelayCommand]
+    private void RemoveImage() => Set("Remove picture", c => ((TitleClip)c).ImagePath = "");
+
+    public static IReadOnlyList<string> ImagePlacements { get; } =
+        ["Above the text", "Below the text", "Left of the text", "Right of the text", "Background (fills the frame)"];
+
+    public int ImagePlacementIndex
+    {
+        get => (int)(Title?.ImagePlacement ?? TitleImagePlacement.Above);
+        set
+        {
+            if (value >= 0 && value < ImagePlacements.Count)
+                Set("Picture placement", c => ((TitleClip)c).ImagePlacement = (TitleImagePlacement)value);
+        }
+    }
+
+    public bool ImageHasSize => HasImage && Title!.ImagePlacement != TitleImagePlacement.Background;
+
+    public double ImageSize
+    {
+        get => Title?.ImageSize ?? 240;
+        set => Set("Picture size", c => ((TitleClip)c).ImageSize = value, "imagesize");
+    }
+
+    // ---- title animation ----------------------------------------------------------------------
+
+    /// <summary>Names for <see cref="TitleMotion"/>, in its order: coming in, and going out.</summary>
+    public static IReadOnlyList<string> MotionsIn { get; } =
+    [
+        "None", "Slide in from the left", "Slide in from the right", "Slide in from the top", "Slide in from the bottom",
+        "Rise and fade in", "Grow", "Wipe in", "Typewriter", "Word by word", "Line by line",
+    ];
+
+    public static IReadOnlyList<string> MotionsOut { get; } =
+    [
+        "None", "Slide out to the left", "Slide out to the right", "Slide out to the top", "Slide out to the bottom",
+        "Sink and fade out", "Shrink", "Wipe out", "Delete letters", "Word by word", "Line by line",
+    ];
+
+    public int AnimationInIndex
+    {
+        get => (int)(Title?.AnimationIn ?? TitleMotion.None);
+        set
+        {
+            if (value >= 0 && value < MotionsIn.Count)
+                Set("Animation in", c => ((TitleClip)c).AnimationIn = (TitleMotion)value);
+        }
+    }
+
+    public int AnimationOutIndex
+    {
+        get => (int)(Title?.AnimationOut ?? TitleMotion.None);
+        set
+        {
+            if (value >= 0 && value < MotionsOut.Count)
+                Set("Animation out", c => ((TitleClip)c).AnimationOut = (TitleMotion)value);
+        }
+    }
+
+    public bool HasAnimationIn => Title is { AnimationIn: not TitleMotion.None, Scroll: TitleScroll.None };
+    public bool HasAnimationOut => Title is { AnimationOut: not TitleMotion.None, Scroll: TitleScroll.None };
+
+    public static IReadOnlyList<string> Scrolls { get; } =
+        ["None", "Credits roll (up the screen)", "Opening crawl (into the distance)", "Ticker (right to left)"];
+
+    public int ScrollIndex
+    {
+        get => (int)(Title?.Scroll ?? TitleScroll.None);
+        set
+        {
+            if (value >= 0 && value < Scrolls.Count)
+                Set("Scrolling", c => ((TitleClip)c).Scroll = (TitleScroll)value);
+        }
+    }
+
+    public bool IsScrolling => Title is { Scroll: not TitleScroll.None };
+    public bool IsNotScrolling => Title is { Scroll: TitleScroll.None };
+
+    public bool IsTicker => Title is { Scroll: TitleScroll.Ticker };
+
+    /// <summary>Pixels per second at 1080p; 0 fits the scroll to the clip's length.</summary>
+    public double ScrollSpeed
+    {
+        get => Title?.ScrollSpeed ?? 0;
+        set => Set("Scroll speed", c => ((TitleClip)c).ScrollSpeed = Math.Round(value), "scrollspeed");
+    }
+
+    public string ScrollSpeedText => ScrollSpeed > 0 ? $"{ScrollSpeed:0}"
+        : IsTicker && ScrollLoop ? $"{TitleClip.DefaultTickerSpeed:0}" : "Fit";
+
+    public bool ScrollLoop
+    {
+        get => Title?.ScrollLoop ?? false;
+        set => Set(value ? "Loop the ticker" : "Stop looping", c => ((TitleClip)c).ScrollLoop = value);
+    }
+
+    /// <summary>Stretches the title to the end of the footage (stopping at the next clip on its track).</summary>
+    [RelayCommand]
+    private void CoverVideo()
+    {
+        if (Title is not { } title)
+            return;
+        var end = _session.Project.AllClips().Where(x => x.Clip is MediaClip && x.Clip.Id != ClipId).Select(x => x.Clip.End).DefaultIfEmpty(0).Max();
+        if (end <= title.Start + 0.1)
+            return;
+        _session.Editor.TrimEnd(ClipId, _session.Editor.ClampTrimEnd(ClipId, end));
+    }
+
+    public string ScrollNote => Title?.Scroll switch
+    {
+        TitleScroll.Credits => "Speed \"Fit\" scrolls it once over the title's length. Write \"Role | Name\" for two columns.",
+        TitleScroll.Crawl => "Speed \"Fit\" scrolls it once over the title's length. Paragraphs are justified, as in the films.",
+        TitleScroll.Ticker => "Each line becomes an item; Box draws a band behind it. Loop repeats the text for as long as the title lasts: " +
+                              "stretch it over the video. A picture stays at the left end of the band (or the right, with \"Right of the text\").",
+        _ => "",
+    };
+
+    public double AnimationInDuration
+    {
+        get => Title?.AnimationInDuration ?? 0.8;
+        set => Set("Animation in length", c => ((TitleClip)c).AnimationInDuration = value, "animin");
+    }
+
+    public double AnimationOutDuration
+    {
+        get => Title?.AnimationOutDuration ?? 0.6;
+        set => Set("Animation out length", c => ((TitleClip)c).AnimationOutDuration = value, "animout");
+    }
+
+    // ---- Lottie text ----------------------------------------------------------------------------
+
+    public bool IsAnimationMedia => MediaFile?.Kind == MediaKind.Animation;
+
+    private IReadOnlyList<AnimationTextViewModel>? _animationTexts;
+
+    /// <summary>
+    /// The animation's text layers, each with the text this clip shows. Built once per inspector (so
+    /// typing isn't interrupted when the inspector refreshes after each change).
+    /// </summary>
+    public IReadOnlyList<AnimationTextViewModel> AnimationTexts
+    {
+        get
+        {
+            if (_animationTexts != null)
+                return _animationTexts;
+            var layers = Array.Empty<(string Name, string Text)>() as IReadOnlyList<(string Name, string Text)>;
+            if (IsAnimationMedia && MediaFile!.Path is { } path && File.Exists(path))
+            {
+                try
+                {
+                    var json = LottieMedia.ReadJson(path);
+                    layers = LottieMedia.TextLayers(json);
+                    _animationHasPictures = LottieMedia.HasPictures(json);
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
+                {
+                    Core.Diagnostics.Log.Warn("inspector", $"Couldn't read the text layers of {path}.", ex);
+                }
+            }
+            _animationTexts = layers.Select(l => new AnimationTextViewModel(this, l.Name, l.Text)).ToList();
+            return _animationTexts;
+        }
+    }
+
+    public bool HasAnimationTexts => AnimationTexts.Count > 0;
+
+    private bool _animationHasPictures;
+
+    /// <summary>The animation uses pictures, which aren't drawn: said in its settings.</summary>
+    public bool AnimationHasPictures
+    {
+        get
+        {
+            _ = AnimationTexts; // reads the file (once)
+            return _animationHasPictures;
+        }
+    }
+
+    public string AnimationPicturesNote => "This animation uses pictures, which aren't shown yet: only its shapes and text play.";
+
+    internal string? AnimationText(string layer) => Media?.TextOverrides.GetValueOrDefault(layer);
+
+    internal void SetAnimationText(string layer, string original, string text) =>
+        Set("Animation text", c =>
+        {
+            var overrides = ((MediaClip)c).TextOverrides;
+            if (text == original)
+                overrides.Remove(layer);
+            else
+                overrides[layer] = text;
+        }, "lottie:" + layer);
+
     public double PositionX
     {
         get => (Title?.X ?? 0.5) * 100;
@@ -471,6 +679,8 @@ public sealed partial class ClipInspectorViewModel : ObservableObject
     public void Refresh()
     {
         RebuildEffects();
+        foreach (var text in _animationTexts ?? [])
+            text.Refresh();
         OnPropertyChanged(string.Empty);
     }
 
@@ -485,4 +695,18 @@ public sealed partial class ClipInspectorViewModel : ObservableObject
         !string.IsNullOrEmpty(text) && Color.TryParse(text, out var c) ? c : fallback;
 
     private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+}
+
+/// <summary>One text layer of a Lottie animation, with the text the clip shows in it.</summary>
+public sealed partial class AnimationTextViewModel(ClipInspectorViewModel owner, string name, string original) : ObservableObject
+{
+    public string Name { get; } = name;
+
+    public string Text
+    {
+        get => owner.AnimationText(Name) ?? original;
+        set => owner.SetAnimationText(Name, original, value);
+    }
+
+    public void Refresh() => OnPropertyChanged(nameof(Text));
 }

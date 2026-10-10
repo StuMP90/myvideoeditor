@@ -108,3 +108,44 @@ public class ResourceLimitsTests
 
 [CollectionDefinition(nameof(RunAlone), DisableParallelization = true)]
 public sealed class RunAlone;
+
+public class ChildProcessTests
+{
+    [Fact]
+    public void Helper_programs_never_get_the_terminal_as_input()
+    {
+        // A killed ffmpeg that had the terminal as input leaves it without echo (typing invisible).
+        // Every program the app starts goes through ChildProcess (or keeps a pipe as input itself).
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "MyVideoEditor.sln")))
+            root = Path.GetDirectoryName(root)!;
+        var offenders = Directory.GetFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") && !f.EndsWith("ChildProcess.cs"))
+            .Where(f =>
+            {
+                var code = File.ReadAllText(f);
+                if (!code.Contains("ProcessStartInfo"))
+                    return false;
+                // Process.Start(...) is only allowed for UseShellExecute (opening a file with its app).
+                var direct = System.Text.RegularExpressions.Regex.Matches(code, @"(?<!Child)Process\.Start\((?!new ProcessStartInfo\(path\) \{ UseShellExecute = true)");
+                var ownProcess = code.Contains(".Start();") && !code.Contains("RedirectStandardInput = true");
+                return direct.Count > 0 || ownProcess;
+            })
+            .Select(Path.GetFileName)
+            .ToList();
+        Assert.Empty(offenders);
+    }
+
+    [Fact]
+    public async Task Ffmpeg_started_without_input_is_told_not_to_read_it()
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo(TestMedia.Locator.FfmpegPath) { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var a in new[] { "-hide_banner", "-version" })
+            psi.ArgumentList.Add(a);
+        using var p = ChildProcess.Start(psi, isFfmpeg: true);
+        await p.WaitForExitAsync();
+        Assert.Equal("-nostdin", psi.ArgumentList[0]);
+        Assert.True(psi.RedirectStandardInput);
+        Assert.Equal(0, p.ExitCode);
+    }
+}

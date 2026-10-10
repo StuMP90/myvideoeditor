@@ -314,6 +314,21 @@ public static class RenderPlanBuilder
     private static (string Layer, string X, string Y)? GraphicLayer(BuildContext c, Item item, Span span)
     {
         var graphics = c.Options.Graphics ?? GraphicsRenderer.Default;
+        if (item.Clip is TitleClip { Scroll: not TitleScroll.None } scrolling)
+            return ScrollLayer(c, item, scrolling, span, graphics);
+        if (item.Clip is TitleClip { IsAnimated: true } title)
+        {
+            // Drawn frame by frame (full frames, only for the part shown), read as a sequence.
+            var from = item.RenderStart - title.Start + span.LocalOffset;
+            var list = graphics.RenderAnimatedTitle(title, c.Width, c.Height, c.Project.Settings.Width, c.Project.Settings.Height, c.Fps, from, from + span.Length);
+            var sequence = c.AddSequenceInput(list);
+            var steps = new List<string> { $"fps={F(c.Fps)}", "format=yuva420p", $"setpts=PTS-STARTPTS+{F(span.LocalOffset)}/TB" };
+            AddOpacityAndFades(item.Clip, item, steps);
+            steps.Add($"setpts=PTS-STARTPTS+{F(span.OutputOffset)}/TB");
+            var animated = c.Label("g");
+            c.Graph.Add($"[{sequence}:v]{string.Join(',', steps)}[{animated}]");
+            return (animated, "0", "0");
+        }
         var rendered = graphics.Render(item.Clip, c.Width, c.Height, c.Project.Settings.Width, c.Project.Settings.Height);
         if (rendered == null)
             return null;
@@ -324,6 +339,92 @@ public static class RenderPlanBuilder
         var layer = c.Label("g");
         c.Graph.Add($"[{input}:v]{string.Join(',', chain)}[{layer}]");
         return (layer, rendered.X.ToString(), rendered.Y.ToString());
+    }
+
+    /// <summary>
+    /// A scrolling title: its text strip (drawn once) with a frame-sized window moving along it over
+    /// the clip's length, tilted back and faded into the distance for a crawl, over its still background.
+    /// </summary>
+    private static (string Layer, string X, string Y)? ScrollLayer(BuildContext c, Item item, TitleClip title, Span span, GraphicsRenderer graphics)
+    {
+        var (projectW, projectH) = (c.Project.Settings.Width, c.Project.Settings.Height);
+        var strip = graphics.RenderScrollStrip(title, c.Width, c.Height, projectW, projectH);
+        var background = graphics.RenderScrollBackground(title, c.Width, c.Height, projectW, projectH);
+        if (strip == null && background == null)
+            return null;
+        var (w, h) = (c.Width, c.Height);
+        // The image repeated as frames from 0 for the part shown; "t" is then seconds since that part began.
+        string Repeated(int input, string format) =>
+            $"[{input}:v]loop=loop=-1:size=1,setpts=N/{F(c.Fps)}/TB,trim=duration={F(span.Length)},format={format}";
+        string? layer = null;
+        if (strip != null)
+        {
+            var clipTime = item.RenderStart - title.Start + span.LocalOffset; // the clip's time at the first frame shown
+            var length = Math.Max(0.01, title.Duration);
+            // How far along the strip the window is: at a set speed (scaled to this frame size), or
+            // all of it over the clip's length. A looping ticker goes round its repeating part after the first pass.
+            string Travel(int distance)
+            {
+                var speed = title.ScrollSpeed > 0 ? title.ScrollSpeed : strip.Period > 0 ? TitleClip.DefaultTickerSpeed : 0;
+                var moved = speed > 0
+                    ? $"{F(speed * h / 1080.0)}*({F(clipTime)}+t)"
+                    : $"{distance}*({F(clipTime)}+t)/{F(length)}";
+                return strip.Period > 0
+                    ? $"'if(lt({moved}\\,{w})\\,{moved}\\,{w}+mod({moved}-{w}\\,{strip.Period}))'"
+                    : $"'min({distance}\\,max(0\\,{moved}))'";
+            }
+            var crop = title.Scroll == TitleScroll.Ticker
+                ? $"crop=w={w}:h={h}:x={Travel(strip.Width - w)}:y=0"
+                : $"crop=w={w}:h={h}:x=0:y={Travel(strip.Height - h)}";
+            layer = c.Label("s");
+            c.Graph.Add($"{Repeated(c.AddImageInput(strip.Path), "yuva420p")},{crop}[{layer}]");
+            if (title.Scroll == TitleScroll.Crawl)
+            {
+                // Tilted back (narrow at the top, wider than the frame at the bottom), then faded towards the top.
+                var tilt = c.Label("crawl");
+                c.Graph.Add($"[{layer}]perspective=x0={F(w * 0.36)}:y0={F(h * 0.1)}:x1={F(w * 0.64)}:y1={F(h * 0.1)}" +
+                            $":x2={F(-w * 0.2)}:y2={h}:x3={F(w * 1.2)}:y3={h}:sense=destination,format=yuva420p,split[{tilt}c][{tilt}a]");
+                c.Graph.Add($"{Repeated(c.AddImageInput(graphics.RenderCrawlMask(w, h)), "gray")}[{tilt}m]");
+                c.Graph.Add($"[{tilt}a]alphaextract[{tilt}x]");
+                c.Graph.Add($"[{tilt}x][{tilt}m]blend=all_mode=multiply[{tilt}f]");
+                c.Graph.Add($"[{tilt}c][{tilt}f]alphamerge[{tilt}]");
+                layer = tilt;
+            }
+        }
+        if (background != null)
+        {
+            var canvas = c.Label("s");
+            c.Graph.Add($"color=c=black@0:s={w}x{h}:r={F(c.Fps)}:d={F(span.Length)},format=yuva420p[{canvas}]");
+            var still = c.Label("s");
+            c.Graph.Add($"{Repeated(c.AddImageInput(background.Path), "yuva420p")}[{still}]");
+            var behind = c.Label("s");
+            c.Graph.Add($"[{canvas}][{still}]overlay=x={background.X}:y={background.Y}:format=auto,format=yuva420p[{behind}]");
+            if (layer != null)
+            {
+                var both = c.Label("s");
+                c.Graph.Add($"[{behind}][{layer}]overlay=0:0:eof_action=pass:format=auto,format=yuva420p[{both}]");
+                layer = both;
+            }
+            else
+            {
+                layer = behind;
+            }
+        }
+        // A ticker's picture stays at one end of the band, over the moving text.
+        if (layer != null && graphics.RenderTickerCap(title, w, h, projectW, projectH) is { } cap)
+        {
+            var still = c.Label("s");
+            c.Graph.Add($"{Repeated(c.AddImageInput(cap.Path), "yuva420p")}[{still}]");
+            var capped = c.Label("s");
+            c.Graph.Add($"[{layer}][{still}]overlay=x={cap.X}:y={cap.Y}:format=auto,format=yuva420p[{capped}]");
+            layer = capped;
+        }
+        var steps = new List<string> { $"setpts=PTS-STARTPTS+{F(span.LocalOffset)}/TB" };
+        AddOpacityAndFades(title, item, steps);
+        steps.Add($"setpts=PTS-STARTPTS+{F(span.OutputOffset)}/TB");
+        var timed = c.Label("g");
+        c.Graph.Add($"[{layer}]{string.Join(',', steps)}[{timed}]");
+        return (timed, "0", "0");
     }
 
     /// <summary>
@@ -624,6 +725,14 @@ public static class RenderPlanBuilder
                 return still;
             }
             var sourceStart = clip.InPoint - (clip.Start - item.RenderStart) * clip.Speed + span.LocalOffset * clip.Speed;
+            if (media.Kind == MediaKind.Animation)
+            {
+                // Lottie: drawn frame by frame at the project's frame rate (in source time, as the speed is applied later).
+                var count = Math.Max(1, (int)Math.Ceiling(span.Length * Fps - 1e-6));
+                var list = LottieMedia.RenderSequence(media.Path, clip.TextOverrides, Math.Max(0, sourceStart), clip.Speed / Fps, count);
+                _mediaInputs[key] = AddSequenceInput(list);
+                return _mediaInputs[key];
+            }
             Inputs.AddRange(["-ss", F(Math.Max(0, sourceStart)), "-t", F(span.Length * clip.Speed), "-i", media.Path]);
             _mediaInputs[key] = InputCount;
             return InputCount++;
@@ -642,8 +751,24 @@ public static class RenderPlanBuilder
                 end = Math.Min(end, media.VideoEnd);
             else if (media.Duration > 0)
                 end = Math.Min(end, media.Duration);
+            if (media.Kind == MediaKind.Animation)
+                return AddSequenceInput(LottieMedia.RenderSequence(media.Path, clip.TextOverrides, end, 1 / Fps, 1));
             var window = Math.Min(media.VideoEnd > 0 ? 0.5 : 3, end);
             Inputs.AddRange(["-ss", F(Math.Max(0, end - window)), "-t", F(window), "-i", media.Path]);
+            return InputCount++;
+        }
+
+        /// <summary>A single picture, read once (repeated by the graph's loop filter).</summary>
+        public int AddImageInput(string path)
+        {
+            Inputs.AddRange(["-i", path]);
+            return InputCount++;
+        }
+
+        /// <summary>A sequence of pictures listed in an ffconcat file (animated titles, Lottie animations).</summary>
+        public int AddSequenceInput(string listPath)
+        {
+            Inputs.AddRange(["-f", "concat", "-safe", "0", "-i", listPath]);
             return InputCount++;
         }
 

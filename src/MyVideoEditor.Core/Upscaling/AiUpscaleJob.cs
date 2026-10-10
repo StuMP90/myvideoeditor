@@ -194,7 +194,7 @@ public sealed class AiUpscaleJob
             psi.WorkingDirectory = Path.GetDirectoryName(program)!; // the programs find their models relative to the working folder
             foreach (var a in args)
                 psi.ArgumentList.Add(a);
-            using var p = Process.Start(psi)!;
+            using var p = ChildProcess.Start(psi);
             limits.Apply(p);
             var stderr = p.StandardError.ReadToEndAsync(CancellationToken.None);
             _ = p.StandardOutput.ReadToEndAsync(CancellationToken.None);

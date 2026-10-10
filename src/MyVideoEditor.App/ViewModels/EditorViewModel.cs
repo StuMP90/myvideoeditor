@@ -169,6 +169,22 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         new("Caption", new TitleClip { Text = "Caption text", FontSize = 42, Y = 0.9, Bold = false, BoxColor = "#000000", BoxOpacity = 0.55, Shadow = false }),
         new("Chapter", new TitleClip { Text = "Chapter 1", FontSize = 64, Y = 0.12, OutlineWidth = 3 }),
         new("End card", new TitleClip { Text = "Thanks for watching", FontSize = 80, BackgroundColor = "#000000", Shadow = false }),
+        new("Credits roll", new TitleClip
+        {
+            Text = "THE END\n\nDirected by | Your Name\nEdited by | Your Name\nMusic | Artist\n\nThanks for watching",
+            FontSize = 54, BackgroundColor = "#000000", Shadow = false, Scroll = TitleScroll.Credits, Duration = 20,
+        }),
+        new("Opening crawl", new TitleClip
+        {
+            Text = "Episode I\nA NEW PROJECT\n\nIt is a period of editing. Clips have been gathered from across the galaxy, " +
+                   "and the timeline awaits its story.\n\nWrite your own opening here, one paragraph per line.",
+            FontSize = 64, Color = "#FFE81F", BackgroundColor = "#000000", Shadow = false, Scroll = TitleScroll.Crawl, Duration = 30,
+        }),
+        new("News ticker", new TitleClip
+        {
+            Text = "First item\nSecond item\nThird item", FontSize = 44, Y = 0.92, BoxColor = "#B00020", BoxOpacity = 0.9,
+            Shadow = false, Scroll = TitleScroll.Ticker, ScrollLoop = true, ScrollSpeed = TitleClip.DefaultTickerSpeed, Duration = 15,
+        }),
     ];
 
     // ---- session -----------------------------------------------------------------------------
@@ -279,7 +295,8 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
     {
         if (!await ConfirmDiscardAsync())
             return;
-        var files = await _dialogs.OpenFilesAsync("Open project", false, DialogService.ProjectFiles);
+        var files = await _dialogs.OpenFilesAsync("Open project", false,
+            [_settings.LastProjectFolder, Session.FilePath is { } current ? Path.GetDirectoryName(current) : null, _settings.LastMediaFolder], DialogService.ProjectFiles);
         if (files.Count > 0)
             await OpenProjectFileAsync(files[0]);
     }
@@ -290,7 +307,8 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         {
             var project = ProjectSerializer.Load(path);
             ReplaceSession(NewSession(project, path));
-            _settings.AddRecentProject(path);
+            _settings.LastProjectFolder = Path.GetDirectoryName(Path.GetFullPath(path));
+            _settings.AddRecentProject(path); // (saves the settings)
             var missing = project.Media.Count(m => m.IsMissing);
             Status = missing > 0 ? $"Opened. {missing} media file(s) are missing; their clips are left out of the preview and export." : "Opened " + Path.GetFileName(path);
         }
@@ -309,7 +327,7 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
 
     private async Task<bool> SaveAsInternal()
     {
-        var folder = Session.FilePath != null ? Path.GetDirectoryName(Session.FilePath) : _settings.LastMediaFolder;
+        var folder = DialogService.ExistingFolder([Session.FilePath is { } current ? Path.GetDirectoryName(current) : null, _settings.LastProjectFolder, _settings.LastMediaFolder]);
         var path = await _dialogs.SaveFileAsync("Save project", Project.Name, Core.Model.Project.FileExtension, "MyVideoEditor project", folder);
         return path != null && SaveTo(path);
     }
@@ -322,7 +340,8 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
                 Project.Name = Path.GetFileNameWithoutExtension(path);
             ProjectSerializer.Save(Project, path);
             Session.MarkSaved(path);
-            _settings.AddRecentProject(path);
+            _settings.LastProjectFolder = Path.GetDirectoryName(Path.GetFullPath(path));
+            _settings.AddRecentProject(path); // (saves the settings)
             DeleteAutosave();
             Status = "Saved " + Path.GetFileName(path);
             return true;
@@ -417,14 +436,18 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task ImportMedia()
     {
-        var files = await _dialogs.OpenFilesAsync("Import media", true, DialogService.MediaFiles);
+        var files = await _dialogs.OpenFilesAsync("Import media", true, [_settings.LastMediaFolder], DialogService.MediaFiles);
         await ImportFilesAsync(files, addToTimeline: false);
     }
 
     /// <summary>Imports files into the bin; optionally puts them on the timeline one after another.</summary>
+    /// <summary>Lottie animations' pictures aren't drawn (see <see cref="LottieMedia.HasPictures"/>).</summary>
+    public const string PicturesNotShown = "this animation uses pictures, which aren't shown yet (its shapes and text play).";
+
     public async Task<List<string>> ImportFilesAsync(IReadOnlyList<string> paths, bool addToTimeline, double? at = null, string? trackId = null)
     {
         var added = new List<string>();
+        var withPictures = new List<string>();
         var failed = new List<string>();
         var position = at ?? Playhead;
         foreach (var path in paths)
@@ -438,6 +461,8 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
             {
                 Status = "Reading " + Path.GetFileName(path) + "…";
                 var info = await MediaProbe.Default.ProbeAsync(path);
+                if (info.Kind == MediaKind.Animation && LottieMedia.HasPictures(LottieMedia.ReadJson(path)))
+                    withPictures.Add(Path.GetFileName(path));
                 var mediaId = Session.Editor.ImportMedia(info);
                 added.Add(mediaId);
                 _settings.LastMediaFolder = Path.GetDirectoryName(path);
@@ -457,6 +482,8 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         }
         _settings.Save();
         Status = added.Count > 0 ? $"Imported {added.Count} file(s)." : "";
+        if (withPictures.Count > 0)
+            Status += $" {string.Join(", ", withPictures)}: {PicturesNotShown}";
         if (failed.Count > 0)
         {
             var hint = FfmpegLocator.Default.IsAvailable ? "" : "\n\nffmpeg wasn't found. Install it, or set MYVIDEOEDITOR_FFMPEG_DIR to its folder.";
@@ -519,7 +546,7 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         }
         var primary = clipId != null && _selection.Contains(clipId) ? clipId : _selection.FirstOrDefault();
         if (Inspector?.ClipId != primary)
-            Inspector = primary == null ? null : new ClipInspectorViewModel(Session, primary);
+            Inspector = primary == null ? null : new ClipInspectorViewModel(Session, primary) { PickImage = PickTitleImageAsync };
         OnPropertyChanged(nameof(HasSelection));
         TimelineInvalidated?.Invoke();
         PreviewUpdated?.Invoke();
@@ -570,6 +597,16 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         Status = why ?? (Project.FindClip(id)?.Track.Id != track
             ? "Transition added; the clip moved onto the same track as the one before it, so they can blend. Choose its style in the clip's settings."
             : "Transition added. Choose its style in the clip's settings.");
+    }
+
+    private async Task<string?> PickTitleImageAsync()
+    {
+        var files = await _dialogs.OpenFilesAsync("Choose a picture for the title", false, [_settings.LastPictureFolder, _settings.LastMediaFolder], DialogService.PictureFiles);
+        if (files.Count == 0)
+            return null;
+        _settings.LastPictureFolder = Path.GetDirectoryName(files[0]);
+        _settings.Save();
+        return files[0];
     }
 
     [RelayCommand]
@@ -963,6 +1000,8 @@ public sealed partial class EditorViewModel : ObservableObject, IDisposable
         {
             await new Core.Export.ProjectExporter().ExportFrameAsync(ProjectSerializer.Clone(Project), Playhead, path);
             Status = "Saved " + path;
+            _settings.LastExportFolder = Path.GetDirectoryName(path);
+            _settings.Save();
         }
         catch (Exception ex)
         {

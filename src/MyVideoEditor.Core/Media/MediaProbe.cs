@@ -29,6 +29,12 @@ public sealed class MediaProbe
         var key = (file.FullName, file.Length, file.LastWriteTimeUtc);
         if (_cache.TryGetValue(key, out var cached))
             return cached;
+        if (LottieMedia.IsLottie(path))
+        {
+            var lottie = await Task.Run(() => LottieMedia.Probe(path), cancellationToken).ConfigureAwait(false);
+            _cache[key] = lottie;
+            return lottie;
+        }
 
         var psi = new ProcessStartInfo(_locator.FfprobePath)
         {
@@ -40,7 +46,7 @@ public sealed class MediaProbe
         foreach (var a in new[] { "-v", "error", "-print_format", "json", "-show_format", "-show_streams", file.FullName })
             psi.ArgumentList.Add(a);
 
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException("Couldn't start ffprobe.");
+        using var process = ChildProcess.Start(psi);
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
         var json = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);

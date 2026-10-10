@@ -250,6 +250,344 @@ public class RenderTests
         Assert.True(mid.R + mid.G + mid.B < 60, $"middle {mid}");
     }
 
+    /// <summary>A 3 s title over 3 s of black: a green box (fully opaque) with white text, in the middle.</summary>
+    private static async Task<EditSession> TitleSession(Action<TitleClip> setUp)
+    {
+        var (session, black) = await SessionWith(await TestMedia.ColorAsync("black", 3));
+        session.Editor.AddMediaClip(black, 0);
+        var title = new TitleClip { Text = "Hello", FontSize = 150, Shadow = false, BoxColor = "#00FF00", BoxOpacity = 1, Duration = 3 };
+        setUp(title);
+        session.Editor.AddTitle(0, title);
+        return session;
+    }
+
+    private static int Count(string video, double time, Func<byte, byte, byte, bool> match)
+    {
+        var (width, height, rgb) = TestMedia.Frame(video, time);
+        var count = 0;
+        for (var i = 0; i < width * height; i++)
+            if (match(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]))
+                count++;
+        return count;
+    }
+
+    private static int Green(string video, double time) => Count(video, time, (r, g, b) => g > 180 && r < 80 && b < 80);
+
+    [Fact]
+    public async Task Titles_slide_in_from_the_side()
+    {
+        var session = await TitleSession(t => { t.AnimationIn = TitleMotion.SlideLeft; t.AnimationInDuration = 1; });
+        var output = await ExportAsync(session);
+        Assert.InRange(TestMedia.FrameCount(output), 89, 91);
+        // At first the box is off the left edge, then it moves in (quickly at first, easing into place).
+        var (early, settled) = (Green(output, 0), Green(output, 1.5));
+        Assert.True(early < settled / 4 && settled > 500, $"green pixels {early} → {settled}");
+        int Rightmost(double time)
+        {
+            var (width, height, rgb) = TestMedia.Frame(output, time);
+            var right = -1;
+            for (var i = 0; i < width * height; i++)
+                if (rgb[i * 3 + 1] > 180 && rgb[i * 3] < 80 && rgb[i * 3 + 2] < 80)
+                    right = Math.Max(right, i % width);
+            return right;
+        }
+        Assert.True(Rightmost(0.1) < Rightmost(0.3) && Rightmost(0.3) < Rightmost(1.5), $"edge at {Rightmost(0.1)}, {Rightmost(0.3)}, {Rightmost(1.5)}");
+        // A preview frame part-way through shows the same as the export.
+        using var engine = new MyVideoEditor.Core.Playback.PlaybackEngine();
+        int PreviewGreen(double time)
+        {
+            using var f = engine.RenderStillAsync(session.Project, time, 320, 240).GetAwaiter().GetResult()!;
+            var n = 0;
+            for (var i = 0; i < f.Width * f.Height; i++)
+                if (f.Pixels[i * 4 + 1] > 180 && f.Pixels[i * 4] < 80 && f.Pixels[i * 4 + 2] < 80)
+                    n++;
+            return n;
+        }
+        var (previewEarly, previewSettled) = (PreviewGreen(0), PreviewGreen(1.5));
+        Assert.True(previewEarly < previewSettled / 4 && Math.Abs(previewSettled - settled) < settled / 5, $"preview {previewEarly} → {previewSettled}");
+    }
+
+    [Fact]
+    public async Task Typewriter_titles_build_up_the_text()
+    {
+        var session = await TitleSession(t => { t.BoxColor = ""; t.Text = "Hello there"; t.FontSize = 100; t.AnimationIn = TitleMotion.Typewriter; t.AnimationInDuration = 2; });
+        var output = await ExportAsync(session);
+        int White(double time)
+        {
+            var (width, height, frame) = TestMedia.Frame(output, time);
+            var count = 0;
+            for (var i = 0; i < width * height; i++)
+                if (frame[i * 3] > 200 && frame[i * 3 + 1] > 200 && frame[i * 3 + 2] > 200)
+                    count++;
+            return count;
+        }
+        var (a, b, c) = (White(0.5), White(1.2), White(2.5));
+        Assert.True(a < b && b < c && a > 0, $"white pixels {a}, {b}, {c}");
+    }
+
+    [Fact]
+    public async Task Titles_fade_out_at_the_end()
+    {
+        var session = await TitleSession(t => { t.AnimationOut = TitleMotion.Rise; t.AnimationOutDuration = 1; });
+        var output = await ExportAsync(session);
+        var (before, late) = (Green(output, 1.5), Green(output, 2.95));
+        Assert.True(before > 500 && late < before / 10, $"green pixels {before} → {late}");
+    }
+
+    [Theory]
+    [InlineData(TitleImagePlacement.Above, 160, 80)]
+    [InlineData(TitleImagePlacement.Background, 10, 10)]
+    public async Task Titles_show_pictures(TitleImagePlacement placement, int x, int y)
+    {
+        var picture = await TestMedia.ImageAsync("red", 200, 100);
+        var session = await TitleSession(t => { t.BoxColor = ""; t.ImagePath = picture; t.ImagePlacement = placement; t.ImageSize = 300; });
+        var output = await ExportAsync(session);
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 1.5, x, y), Red), $"{placement}: {TestMedia.PixelAt(output, 1.5, x, y)}");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)] // a .lottie archive
+    public async Task Lottie_files_import_as_animations(bool archive)
+    {
+        var info = await MediaProbe.Default.ProbeAsync(TestMedia.Lottie(archive));
+        Assert.Equal(MediaKind.Animation, info.Kind);
+        Assert.Equal((320, 240), (info.Width, info.Height));
+        Assert.Equal(2, info.Duration, 2);
+        Assert.Equal(30, info.FrameRate, 1);
+        Assert.True(info.HasVideo);
+        Assert.False(info.HasAudio);
+        Assert.False(LottieMedia.IsLottie(await TestMedia.ImageAsync("red")));
+    }
+
+    [Fact]
+    public void Lottie_text_layers_can_be_given_new_text()
+    {
+        var json = LottieMedia.ReadJson(TestMedia.Lottie());
+        Assert.Equal([("Title", "Hello")], LottieMedia.TextLayers(json));
+        var changed = LottieMedia.WithText(json, new Dictionary<string, string> { ["Title"] = "Welcome\nback" });
+        Assert.Equal([("Title", "Welcome\nback")], LottieMedia.TextLayers(changed));
+        Assert.Same(json, LottieMedia.WithText(json, new Dictionary<string, string>()));
+        // Pictures inside an animation are detected (they aren't drawn, so the user is told).
+        Assert.False(LottieMedia.HasPictures(json));
+        Assert.True(LottieMedia.HasPictures(LottieMedia.ReadJson(TestMedia.LottieWithPicture())));
+    }
+
+    [Fact]
+    public async Task Lottie_animations_play_on_the_timeline_with_their_own_text()
+    {
+        var (session, black) = await SessionWith(await TestMedia.ColorAsync("black", 2));
+        session.Editor.AddMediaClip(black, 0);
+        var animation = await ImportAsync(session, TestMedia.Lottie());
+        var v2 = session.Project.Tracks.First(t => t.Name == "V2").Id;
+        var clip = session.Editor.AddMediaClip(animation, 0, v2);
+        var output = await ExportAsync(session);
+        Assert.InRange(TestMedia.FrameCount(output), 59, 61);
+        // The green square moves left to right.
+        double MeanX(double time)
+        {
+            var (width, height, rgb) = TestMedia.Frame(output, time);
+            var (sum, n) = (0.0, 0);
+            for (var i = 0; i < width * height; i++)
+                if (rgb[i * 3 + 1] > 180 && rgb[i * 3] < 80 && rgb[i * 3 + 2] < 80)
+                    (sum, n) = (sum + i % width, n + 1);
+            return n == 0 ? double.NaN : sum / n;
+        }
+        var (early, late) = (MeanX(0.2), MeanX(1.8));
+        Assert.True(early < 100 && late > 220, $"square at {early:0} then {late:0}");
+
+        // New text for the "Title" layer (when this computer has the layer's font family).
+        int White(string video) => Count(video, 1, (r, g, b) => r > 200 && g > 200 && b > 200);
+        var before = White(output);
+        session.Editor.UpdateClip(clip, "text", c => ((MediaClip)c).TextOverrides["Title"] = "Hello and welcome");
+        var changed = await ExportAsync(session);
+        if (before > 0)
+            Assert.True(White(changed) > before * 1.5, $"white pixels {before} → {White(changed)}");
+
+        // Preview frames and timeline thumbnails come from the same drawing.
+        using var engine = new MyVideoEditor.Core.Playback.PlaybackEngine();
+        using var frame = await engine.RenderStillAsync(session.Project, 1, 160, 120);
+        Assert.NotNull(frame);
+        var strip = await new MediaPreviews(cacheDirectory: TestMedia.NewOutputDirectory()).GetFilmstripAsync(TestMedia.Lottie(), 2, false);
+        Assert.NotNull(strip);
+    }
+
+    /// <summary>Where white-ish (or yellow, for a crawl) pixels are: their count, mean x and y, and the x-extent of the top and bottom rows that have any.</summary>
+    private static (int Count, double X, double Y, int TopWidth, int BottomWidth) Text(string video, double time, bool yellow = false)
+    {
+        var (width, height, rgb) = TestMedia.Frame(video, time);
+        var (n, sx, sy) = (0, 0.0, 0.0);
+        var rows = new Dictionary<int, (int Min, int Max)>();
+        for (var i = 0; i < width * height; i++)
+        {
+            var (r, g, b) = (rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
+            if (yellow ? r > 150 && g > 120 && b < 90 : r > 200 && g > 200 && b > 200)
+            {
+                var (x, y) = (i % width, i / width);
+                (n, sx, sy) = (n + 1, sx + x, sy + y);
+                rows[y] = rows.TryGetValue(y, out var e) ? (Math.Min(e.Min, x), Math.Max(e.Max, x)) : (x, x);
+            }
+        }
+        if (n == 0)
+            return (0, double.NaN, double.NaN, 0, 0);
+        var top = rows[rows.Keys.Min()];
+        var bottom = rows[rows.Keys.Max()];
+        return (n, sx / n, sy / n, top.Max - top.Min, bottom.Max - bottom.Min);
+    }
+
+    private static async Task<EditSession> ScrollSession(TitleScroll scroll, string text, string background = "", string color = "#FFFFFF")
+    {
+        var (session, black) = await SessionWith(await TestMedia.ColorAsync("black", 4));
+        session.Editor.AddMediaClip(black, 0);
+        session.Editor.AddTitle(0, new TitleClip
+        {
+            Text = text, FontSize = 70, Shadow = false, Duration = 4, Scroll = scroll, BackgroundColor = background, Color = color, Y = 0.85,
+        });
+        return session;
+    }
+
+    [Fact]
+    public async Task Credits_roll_up_through_the_frame()
+    {
+        var credits = "THE END\n\nDirected by | Jane Doe\nEdited by | John Smith\nMusic | The Band\n\nThanks for watching";
+        var session = await ScrollSession(TitleScroll.Credits, credits, background: "#0000FF");
+        var output = await ExportAsync(session);
+        Assert.InRange(TestMedia.FrameCount(output), 119, 121);
+        var (start, early, middle, late, end) = (Text(output, 0), Text(output, 1.2), Text(output, 2), Text(output, 2.8), Text(output, 3.95));
+        // From below the frame, up through it, and off the top: nothing at either end.
+        Assert.True(start.Count == 0 && end.Count == 0, $"text at the ends: {start.Count}, {end.Count}");
+        Assert.True(early.Y > middle.Y && middle.Y > late.Y, $"text at y {early.Y:0}, {middle.Y:0}, {late.Y:0}");
+        // The background stays put.
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 0, 5, 5), (0, 0, 255), 30));
+        Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 3.95, 5, 5), (0, 0, 255), 30));
+        // A preview frame part-way through matches the export.
+        using var engine = new MyVideoEditor.Core.Playback.PlaybackEngine();
+        using var frame = await engine.RenderStillAsync(session.Project, 2, 320, 240);
+        var (n, sy) = (0, 0.0);
+        for (var i = 0; i < frame!.Width * frame.Height; i++)
+            if (frame.Pixels[i * 4] > 200 && frame.Pixels[i * 4 + 1] > 200 && frame.Pixels[i * 4 + 2] > 200)
+                (n, sy) = (n + 1, sy + i / frame.Width);
+        Assert.True(n > 0 && Math.Abs(sy / n - middle.Y) < 12, $"preview text at y {sy / Math.Max(1, n):0}, export {middle.Y:0}");
+    }
+
+    [Fact]
+    public async Task Credits_lines_with_a_bar_form_two_columns()
+    {
+        var session = await ScrollSession(TitleScroll.Credits, "Director | Jane Doe");
+        var output = await ExportAsync(session);
+        var (width, height, rgb) = TestMedia.Frame(output, 2);
+        var (left, right) = (0, 0);
+        for (var i = 0; i < width * height; i++)
+            if (rgb[i * 3] > 150 && rgb[i * 3 + 1] > 150 && rgb[i * 3 + 2] > 150)
+            {
+                if (i % width < width / 2 - 4) left++;
+                if (i % width > width / 2 + 4) right++;
+            }
+        Assert.True(left > 20 && right > 20, $"left {left}, right {right}");
+        // No "|" drawn between them: the middle column is empty.
+        for (var y = 0; y < height; y++)
+            Assert.True(rgb[(y * width + width / 2) * 3] < 150, $"something drawn in the middle at y {y}");
+    }
+
+    [Fact]
+    public async Task Crawls_recede_into_the_distance()
+    {
+        var crawl = string.Join(" ", Enumerable.Repeat("It is a period of civil war in the editor, and the titles scroll away.", 4));
+        var session = await ScrollSession(TitleScroll.Crawl, crawl, color: "#FFE81F");
+        var output = await ExportAsync(session);
+        var (early, late) = (Text(output, 1.0, yellow: true), Text(output, 2.0, yellow: true));
+        Assert.True(early.Count > 50 && late.Count > 50, $"yellow pixels {early.Count}, {late.Count}");
+        Assert.True(late.Y < early.Y, $"moving up: y {early.Y:0} → {late.Y:0}");
+        // Perspective: lines nearer the top are narrower.
+        Assert.True(early.TopWidth < early.BottomWidth, $"top {early.TopWidth} px wide, bottom {early.BottomWidth}");
+        // And it fades out before reaching the top of the frame.
+        var (width, _, rgb) = TestMedia.Frame(output, 3.5);
+        for (var i = 0; i < width * 15; i++)
+            Assert.True(rgb[i * 3] < 120, "nothing bright at the very top");
+    }
+
+    [Fact]
+    public async Task Tickers_run_right_to_left()
+    {
+        var session = await ScrollSession(TitleScroll.Ticker, "Breaking news\nTitles now scroll");
+        var output = await ExportAsync(session);
+        var (early, late) = (Text(output, 1), Text(output, 2.5));
+        Assert.True(early.Count > 0 && late.Count > 0);
+        Assert.True(late.X < early.X, $"x {early.X:0} → {late.X:0}");
+        Assert.True(early.Y > 180, $"at the title's height (85%): y {early.Y:0}");
+    }
+
+    [Fact]
+    public async Task Looping_tickers_run_on_seamlessly_at_a_steady_speed()
+    {
+        // A short text on a long clip: without looping it would pass once and leave the band empty.
+        var (session, black) = await SessionWith(await TestMedia.ColorAsync("black", 12));
+        session.Editor.AddMediaClip(black, 0);
+        session.Editor.AddTitle(0, new TitleClip
+        {
+            Text = "News", FontSize = 70, Shadow = false, Duration = 12, Scroll = TitleScroll.Ticker, Y = 0.5,
+            ScrollLoop = true, ScrollSpeed = 400,
+        });
+        var output = await ExportAsync(session);
+        // The first pass comes in from the right; after that the band is never empty.
+        Assert.Equal(0, Text(output, 0).Count);
+        var counts = Enumerable.Range(0, 20).Select(i => Text(output, 1 + i * 0.5).Count).ToList();
+        Assert.All(counts, n => Assert.True(n > 0, $"an empty band: {string.Join(", ", counts)}"));
+        // Steady speed: 400 px/s at 1080p is 400 × 240 / 1080 ≈ 89 px/s here, so ≈ 44 px in 0.5 s, late on as early on.
+        int[] Columns(double time)
+        {
+            var (width, height, rgb) = TestMedia.Frame(output, time);
+            var columns = new int[width];
+            for (var i = 0; i < width * height; i++)
+                if (rgb[i * 3] > 200)
+                    columns[i % width]++;
+            return columns;
+        }
+        int Shift(double time)
+        {
+            var (a, b) = (Columns(time), Columns(time + 0.5));
+            return Enumerable.Range(0, 80).MinBy(d => Enumerable.Range(80, a.Length - 160).Sum(x => Math.Abs(a[x] - b[x - d])));
+        }
+        Assert.InRange(Shift(3), 38, 50);
+        Assert.InRange(Shift(10), 38, 50);
+    }
+
+    [Fact]
+    public async Task Speed_sets_how_fast_credits_roll()
+    {
+        // At a set speed, the same text reaches the same place at the same time whatever the clip's length.
+        async Task<double> MiddleY(double length)
+        {
+            var (session, black) = await SessionWith(await TestMedia.ColorAsync("black", 4));
+            session.Editor.AddMediaClip(black, 0);
+            session.Editor.AddTitle(0, new TitleClip { Text = "Credits", FontSize = 70, Shadow = false, Duration = length, Scroll = TitleScroll.Credits, ScrollSpeed = 300 });
+            return Text(await ExportAsync(session), 2).Y;
+        }
+        var (short4, long30) = (await MiddleY(4), await MiddleY(30));
+        Assert.True(Math.Abs(short4 - long30) < 3, $"y {short4:0} and {long30:0}");
+    }
+
+    [Theory]
+    [InlineData(TitleImagePlacement.Left, 12)]
+    [InlineData(TitleImagePlacement.Right, 308)]
+    public async Task Ticker_pictures_stay_at_one_end_of_the_band(TitleImagePlacement placement, int x)
+    {
+        var picture = await TestMedia.ImageAsync("red", 100, 100);
+        var (session, black) = await SessionWith(await TestMedia.ColorAsync("black", 4));
+        session.Editor.AddMediaClip(black, 0);
+        session.Editor.AddTitle(0, new TitleClip
+        {
+            Text = "Breaking news\nTitles now scroll", FontSize = 70, Shadow = false, Duration = 4, Scroll = TitleScroll.Ticker, Y = 0.5,
+            BoxColor = "#0000FF", BoxOpacity = 1, ImagePath = picture, ImagePlacement = placement, ImageSize = 60,
+        });
+        var output = await ExportAsync(session);
+        // The picture is in the same place all the way through, while the text moves under it.
+        foreach (var time in new[] { 0.5, 2.0, 3.5 })
+            Assert.True(TestMedia.Near(TestMedia.PixelAt(output, time, x, 120), Red), $"{time} s: {TestMedia.PixelAt(output, time, x, 120)}");
+        var (early, late) = (Text(output, 1), Text(output, 2.5));
+        Assert.True(late.X < early.X, $"text moves: x {early.X:0} → {late.X:0}");
+    }
+
     [Fact]
     public async Task Fade_in_starts_from_the_background()
     {

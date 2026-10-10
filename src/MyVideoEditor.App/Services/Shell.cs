@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MyVideoEditor.Core;
 using MyVideoEditor.Core.Diagnostics;
 
 namespace MyVideoEditor.App.Services;
@@ -11,7 +12,7 @@ public static class Shell
         try
         {
             if (OperatingSystem.IsLinux())
-                Process.Start(new ProcessStartInfo("xdg-open") { ArgumentList = { path }, UseShellExecute = false });
+                ChildProcess.Start(new ProcessStartInfo("xdg-open") { ArgumentList = { path } }).Dispose();
             else
                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
@@ -32,7 +33,7 @@ public static class Shell
                 // paths with spaces) makes it ignore it and open Documents.
                 var full = Path.GetFullPath(file);
                 if (File.Exists(full))
-                    Process.Start(new ProcessStartInfo("explorer.exe") { Arguments = $"/select,\"{full}\"", UseShellExecute = false });
+                    ChildProcess.Start(new ProcessStartInfo("explorer.exe") { Arguments = $"/select,\"{full}\"" }).Dispose();
                 else
                     Open(Path.GetDirectoryName(full) ?? full);
             }

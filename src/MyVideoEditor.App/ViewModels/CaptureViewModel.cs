@@ -164,7 +164,7 @@ public sealed partial class CaptureViewModel : ObservableObject
     [RelayCommand]
     private async Task ChooseFolder()
     {
-        var folder = await _dialogs.PickFolderAsync("Save recordings to");
+        var folder = await _dialogs.PickFolderAsync("Save recordings to", [OutputFolder]);
         if (folder != null)
             OutputFolder = folder;
     }

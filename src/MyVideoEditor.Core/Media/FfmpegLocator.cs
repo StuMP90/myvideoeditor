@@ -74,7 +74,7 @@ public sealed partial class FfmpegLocator
             psi.ArgumentList.Add("-hide_banner");
             foreach (var a in args)
                 psi.ArgumentList.Add(a);
-            using var p = Process.Start(psi)!;
+            using var p = ChildProcess.Start(psi, isFfmpeg: true);
             var stderr = p.StandardError.ReadToEndAsync();
             var output = p.StandardOutput.ReadToEnd();
             p.WaitForExit(10_000);

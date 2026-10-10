@@ -59,19 +59,22 @@ public static class ProjectSerializer
     }
 
     /// <summary>
-    /// If a media file isn't where it was, looks for it next to the project file (a project folder
-    /// copied to another computer or drive).
+    /// If a media file or title picture isn't where it was, looks for it next to the project file (a
+    /// project folder copied to another computer or drive).
     /// </summary>
     internal static void ResolveRelativePaths(Project project, string projectDirectory)
     {
-        foreach (var media in project.Media)
+        string Find(string path)
         {
-            if (File.Exists(media.Path))
-                continue;
-            var candidate = Path.Combine(projectDirectory, Path.GetFileName(media.Path));
-            if (File.Exists(candidate))
-                media.Path = candidate;
+            if (string.IsNullOrEmpty(path) || File.Exists(path))
+                return path;
+            var candidate = Path.Combine(projectDirectory, Path.GetFileName(path));
+            return File.Exists(candidate) ? candidate : path;
         }
+        foreach (var media in project.Media)
+            media.Path = Find(media.Path);
+        foreach (var title in project.Tracks.SelectMany(t => t.Clips).OfType<TitleClip>())
+            title.ImagePath = Find(title.ImagePath);
     }
 
     public static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, Options), Options)!;

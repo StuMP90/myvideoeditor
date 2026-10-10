@@ -10,7 +10,12 @@ public sealed class AppSettings
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
     public List<string> RecentProjects { get; set; } = [];
+    /// <summary>Where media was last imported or added from (the import and add-files dialogs start there).</summary>
     public string? LastMediaFolder { get; set; }
+    /// <summary>Where a project was last opened or saved.</summary>
+    public string? LastProjectFolder { get; set; }
+    /// <summary>Where a title picture was last chosen from.</summary>
+    public string? LastPictureFolder { get; set; }
     public string? LastExportFolder { get; set; }
     public string ExportFormat { get; set; } = "mp4-h264";
     public string ExportQuality { get; set; } = "Standard";

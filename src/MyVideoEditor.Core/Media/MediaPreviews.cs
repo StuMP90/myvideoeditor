@@ -108,14 +108,22 @@ public sealed class MediaPreviews
                 await _workers.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    var args = new List<string>();
-                    if (!isImage)
-                        args.AddRange(["-skip_frame", "nokey"]);
-                    args.AddRange(["-i", path, "-an", "-vf", isImage ? $"scale={width}:{height}" : $"fps=1/{F(interval)},scale={width}:{height}"]);
-                    if (isImage)
-                        args.AddRange(["-frames:v", "1"]);
-                    args.AddRange(["-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"]);
-                    data = await RunToBytesAsync(args).ConfigureAwait(false);
+                    if (info.Kind == MediaKind.Animation)
+                    {
+                        // Lottie: drawn by Skottie (ffmpeg can't read it).
+                        data = LottieMedia.Thumbnails(path, width, height, interval, info.Duration);
+                    }
+                    else
+                    {
+                        var args = new List<string>();
+                        if (!isImage)
+                            args.AddRange(["-skip_frame", "nokey"]);
+                        args.AddRange(["-i", path, "-an", "-vf", isImage ? $"scale={width}:{height}" : $"fps=1/{F(interval)},scale={width}:{height}"]);
+                        if (isImage)
+                            args.AddRange(["-frames:v", "1"]);
+                        args.AddRange(["-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"]);
+                        data = await RunToBytesAsync(args).ConfigureAwait(false);
+                    }
                 }
                 finally
                 {
@@ -223,7 +231,7 @@ public sealed class MediaPreviews
         var psi = new ProcessStartInfo(_locator.FfmpegPath) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         foreach (var a in new[] { "-hide_banner", "-loglevel", "error" }.Concat(args))
             psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
+        using var p = ChildProcess.Start(psi, isFfmpeg: true);
         var errors = p.StandardError.ReadToEndAsync();
         using var ms = new MemoryStream();
         await p.StandardOutput.BaseStream.CopyToAsync(ms).ConfigureAwait(false);

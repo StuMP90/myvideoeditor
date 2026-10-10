@@ -180,9 +180,12 @@ public class EditingTests
     {
         var dir = TestMedia.NewOutputDirectory();
         File.WriteAllText(Path.Combine(dir, "clip.mp4"), "x");
-        var project = new Project { Media = [new MediaReference { Path = "/elsewhere/clip.mp4" }] };
+        File.WriteAllText(Path.Combine(dir, "logo.png"), "x");
+        var title = new TitleClip { ImagePath = "/elsewhere/logo.png" };
+        var project = new Project { Media = [new MediaReference { Path = "/elsewhere/clip.mp4" }], Tracks = [new Track { Clips = [title] }] };
         ProjectSerializer.ResolveRelativePaths(project, dir);
         Assert.Equal(Path.Combine(dir, "clip.mp4"), project.Media[0].Path);
+        Assert.Equal(Path.Combine(dir, "logo.png"), title.ImagePath); // title pictures too
     }
 
     [Theory]

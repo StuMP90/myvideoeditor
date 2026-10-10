@@ -88,7 +88,7 @@ public static partial class AudioDevices
             psi.ArgumentList.Add(a);
         try
         {
-            using var p = Process.Start(psi)!;
+            using var p = ChildProcess.Start(psi);
             var stdout = p.StandardOutput.ReadToEndAsync();
             var stderr = p.StandardError.ReadToEndAsync();
             await p.WaitForExitAsync().ConfigureAwait(false);

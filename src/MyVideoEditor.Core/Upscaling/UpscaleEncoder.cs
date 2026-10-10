@@ -81,7 +81,7 @@ internal static class UpscaleEncoder
         foreach (var a in args)
             psi.ArgumentList.Add(a);
         Log.Info("upscale", "ffmpeg " + FfmpegRunner.FormatCommandLine(args));
-        var p = Process.Start(psi) ?? throw new InvalidOperationException("Couldn't start ffmpeg.");
+        var p = ChildProcess.Start(psi, keepInput: redirectInput, isFfmpeg: true);
         limits.Apply(p);
         p.ErrorDataReceived += (_, e) =>
         {

@@ -36,6 +36,22 @@ Both include FFmpeg, so there's nothing else to install.
 - **Titles**: title, title card, lower third, caption, chapter and end-card styles; any installed
   font, size, colour, outline, shadow, background box, full-frame background. Drag them in the
   preview. Text sizes are relative to the frame, so a title looks the same in 720p and 4K.
+  A **picture** (a logo, say) can sit above, below, left or right of the text, or fill the frame
+  behind it. **Animations** in and out: slide from any side, rise/sink, grow/shrink, wipe,
+  typewriter, word by word, line by line, each with its own length (drawn frame by frame with the
+  same code as still titles, so the preview matches the export). **Scrolling** titles, with
+  templates: an end **credits roll** (lines written `Role | Name` form two columns), a Star
+  Wars-style **opening crawl** (justified text receding into the distance and fading), and a news
+  **ticker**, which can loop seamlessly for as long as the title lasts (stretch it over the video:
+  one click does it). A speed setting (pixels per second) is independent of the length; "Fit" scrolls
+  once over the title's length. The text is drawn once as a long strip and ffmpeg
+  moves a frame-sized window along it (tilting it back for the crawl), so long credits stay fast.
+- **Lottie animations** (`.json` or `.lottie`) import like any other media and play on a video
+  track over the footage; their text layers can be given new text per clip in its settings.
+  Pictures inside an animation (image layers) aren't shown yet, only its shapes and text: the app
+  says so when importing one (SkiaSharp 2.88's Lottie player can't load images). The
+  app ships no animations (to avoid licensing questions): use your own, or ones whose licence
+  allows it, made for example with After Effects + Bodymovin or the free Glaxnimate.
 - **Effects** (stackable, per clip): colour correction (brightness, contrast, saturation, gamma),
   colour temperature, black and white, sepia, invert, blur, sharpen, vignette, noise reduction,
   stabilisation, mirror/flip, green screen (chroma key). For sound: loudness normalisation, noise
@@ -332,7 +348,7 @@ ask for one. Recordings happen only when you start them. See the [privacy policy
 ## Licence
 
 MyVideoEditor is released under the [MIT License](LICENSE). Bundled components keep their own
-licences, chiefly MIT (Avalonia, SkiaSharp, CommunityToolkit.Mvvm, Silk.NET), LGPL (OpenAL Soft)
+licences, chiefly MIT (Avalonia, SkiaSharp and its Skottie Lottie player, CommunityToolkit.Mvvm, Silk.NET), LGPL (OpenAL Soft)
 and GPL (FFmpeg, run as separate programs). Release builds include `THIRD-PARTY-NOTICES.txt` with
 every bundled component's copyright and licence, generated per platform by
 `tools/generate-third-party-notices.py`; the build fails if any package has no licence text.

@@ -667,7 +667,12 @@ public sealed partial class ConvertViewModel : ObservableObject
     [RelayCommand]
     private async Task AddFiles()
     {
-        var files = await _dialogs.OpenFilesAsync("Add files to convert", true, DialogService.MediaFiles);
+        var files = await _dialogs.OpenFilesAsync("Add files to convert", true, [_settings.LastMediaFolder], DialogService.MediaFiles);
+        if (files.Count > 0)
+        {
+            _settings.LastMediaFolder = Path.GetDirectoryName(files[0]);
+            _settings.Save();
+        }
         await AddFilesAsync(files);
     }
 
@@ -678,7 +683,10 @@ public sealed partial class ConvertViewModel : ObservableObject
         {
             try
             {
-                Jobs.Add(new ConvertJobViewModel(await MediaProbe.Default.ProbeAsync(path)));
+                var info = await MediaProbe.Default.ProbeAsync(path);
+                if (info.Kind == MediaKind.Animation)
+                    throw new NotSupportedException("Lottie animations can't be converted directly: add it to a project in the Edit tab and export.");
+                Jobs.Add(new ConvertJobViewModel(info));
                 SelectedJob ??= Jobs[^1];
             }
             catch (Exception ex)
@@ -711,7 +719,7 @@ public sealed partial class ConvertViewModel : ObservableObject
     [RelayCommand]
     private async Task ChooseFolder()
     {
-        var folder = await _dialogs.PickFolderAsync("Save converted files to");
+        var folder = await _dialogs.PickFolderAsync("Save converted files to", [OutputFolder, _settings.LastMediaFolder]);
         if (folder != null)
             OutputFolder = folder;
     }

@@ -16,7 +16,7 @@ public sealed partial class MediaItemViewModel : ObservableObject
         Kind = media.Kind;
         IsMissing = media.IsMissing;
         Summary = IsMissing ? "Missing: " + media.Path : Describe(media);
-        KindLabel = media.Kind switch { MediaKind.Audio => "♪", MediaKind.Image => "▣", _ => "▶" };
+        KindLabel = media.Kind switch { MediaKind.Audio => "♪", MediaKind.Image => "▣", MediaKind.Animation => "✦", _ => "▶" };
     }
 
     public string Id { get; }
@@ -35,7 +35,7 @@ public sealed partial class MediaItemViewModel : ObservableObject
         var parts = new List<string>();
         if (m.HasVideo)
             parts.Add($"{m.Width}×{m.Height}");
-        if (m.Kind == MediaKind.Video && m.FrameRate > 0)
+        if (m.Kind is MediaKind.Video or MediaKind.Animation && m.FrameRate > 0)
             parts.Add($"{m.FrameRate:0.##} fps");
         if (m.Kind != MediaKind.Image)
             parts.Add(Core.Timecode.Format(m.Duration));

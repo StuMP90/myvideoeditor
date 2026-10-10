@@ -165,7 +165,7 @@ public sealed class UpscaleBenchmark
             psi.ArgumentList.Add("-n");
             psi.ArgumentList.Add(settings.Algorithm switch { ScaleAlgorithm.AiAnimation => "realesr-animevideov3", ScaleAlgorithm.AiPhoto => "realesrgan-x4plus", _ => "-1" });
             var sw = Stopwatch.StartNew();
-            using var p = Process.Start(psi)!;
+            using var p = ChildProcess.Start(psi);
             settings.Limits.Apply(p);
             _ = p.StandardError.ReadToEndAsync(ct);
             _ = p.StandardOutput.ReadToEndAsync(ct);

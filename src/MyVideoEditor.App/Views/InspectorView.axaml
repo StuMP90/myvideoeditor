@@ -133,6 +133,23 @@
       </Grid>
     </StackPanel>
 
+    <TextBlock Text="{Binding AnimationPicturesNote}" IsVisible="{Binding AnimationHasPictures}" Classes="muted" FontSize="11" TextWrapping="Wrap" Margin="0,4" />
+
+    <!-- Lottie animations: their text layers -->
+    <StackPanel IsVisible="{Binding HasAnimationTexts}" Spacing="2">
+      <TextBlock Text="ANIMATION TEXT" Classes="section" />
+      <ItemsControl ItemsSource="{Binding AnimationTexts}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:AnimationTextViewModel">
+            <StackPanel Spacing="2" Margin="0,2">
+              <TextBlock Text="{Binding Name}" Classes="muted" FontSize="11" />
+              <TextBox Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+
     <!-- Titles -->
     <StackPanel IsVisible="{Binding IsTitle}" Spacing="2">
       <TextBlock Text="TEXT" Classes="section" />
@@ -173,6 +190,60 @@
         <CheckBox Content="Fill the frame (title card)" IsChecked="{Binding HasBackground}" />
         <ColorPicker Grid.Column="1" Color="{Binding BackgroundColor}" IsAlphaEnabled="False" IsEnabled="{Binding HasBackground}" />
       </Grid>
+
+      <TextBlock Text="PICTURE" Classes="section" />
+      <Grid Classes="row" ColumnDefinitions="*,Auto,Auto">
+        <TextBlock Text="{Binding ImageName}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="A logo or other picture shown with the text" />
+        <Button Grid.Column="1" Classes="tool" Content="Choose…" Command="{Binding ChooseImageCommand}" FontSize="11" Margin="6,0,0,0" />
+        <Button Grid.Column="2" Classes="tool" Content="Remove" Command="{Binding RemoveImageCommand}" IsVisible="{Binding HasImage}" FontSize="11" Margin="4,0,0,0" />
+      </Grid>
+      <TextBlock Text="The picture file can't be found." Classes="muted" FontSize="11" IsVisible="{Binding ImageMissing}" />
+      <Grid Classes="row" ColumnDefinitions="90,*" IsVisible="{Binding HasImage}">
+        <TextBlock Classes="name" Text="Place" />
+        <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ClipInspectorViewModel.ImagePlacements}" SelectedIndex="{Binding ImagePlacementIndex}" HorizontalAlignment="Stretch" />
+      </Grid>
+      <Grid Classes="row" ColumnDefinitions="90,*,48" IsVisible="{Binding ImageHasSize}">
+        <TextBlock Classes="name" Text="Height" />
+        <Slider Grid.Column="1" Minimum="20" Maximum="1080" Value="{Binding ImageSize}" />
+        <TextBlock Grid.Column="2" Classes="value" Text="{Binding ImageSize, StringFormat='{}{0:0}'}" />
+      </Grid>
+
+      <TextBlock Text="ANIMATION" Classes="section" />
+      <Grid Classes="row" ColumnDefinitions="90,*">
+        <TextBlock Classes="name" Text="Scroll" />
+        <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ClipInspectorViewModel.Scrolls}" SelectedIndex="{Binding ScrollIndex}" HorizontalAlignment="Stretch" />
+      </Grid>
+      <Grid Classes="row" ColumnDefinitions="90,*,48" IsVisible="{Binding IsScrolling}"
+            ToolTip.Tip="Pixels per second (at 1080p). At the far left, Fit scrolls the text once over the title's length.">
+        <TextBlock Classes="name" Text="Speed" />
+        <Slider Grid.Column="1" Minimum="0" Maximum="600" Value="{Binding ScrollSpeed}" SmallChange="10" LargeChange="50" />
+        <TextBlock Grid.Column="2" Classes="value" Text="{Binding ScrollSpeedText}" />
+      </Grid>
+      <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsTicker}" Margin="0,2">
+        <CheckBox Content="Loop" IsChecked="{Binding ScrollLoop}" ToolTip.Tip="Repeat the text, with no gap, for as long as the title lasts" />
+        <Button Classes="tool" Content="Cover the whole video" Command="{Binding CoverVideoCommand}" FontSize="11"
+                ToolTip.Tip="Stretch the ticker to the end of the footage (stopping at the next clip on its track)" />
+      </StackPanel>
+      <TextBlock Text="{Binding ScrollNote}" IsVisible="{Binding IsScrolling}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
+      <Grid Classes="row" ColumnDefinitions="90,*" IsVisible="{Binding IsNotScrolling}">
+        <TextBlock Classes="name" Text="In" />
+        <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ClipInspectorViewModel.MotionsIn}" SelectedIndex="{Binding AnimationInIndex}" HorizontalAlignment="Stretch" MaxDropDownHeight="400" />
+      </Grid>
+      <Grid Classes="row" ColumnDefinitions="90,*,48" IsVisible="{Binding HasAnimationIn}">
+        <TextBlock Classes="name" Text="Length" />
+        <Slider Grid.Column="1" Minimum="0.1" Maximum="5" Value="{Binding AnimationInDuration}" SmallChange="0.1" />
+        <TextBlock Grid.Column="2" Classes="value" Text="{Binding AnimationInDuration, StringFormat='{}{0:0.0} s'}" />
+      </Grid>
+      <Grid Classes="row" ColumnDefinitions="90,*" IsVisible="{Binding IsNotScrolling}">
+        <TextBlock Classes="name" Text="Out" />
+        <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:ClipInspectorViewModel.MotionsOut}" SelectedIndex="{Binding AnimationOutIndex}" HorizontalAlignment="Stretch" MaxDropDownHeight="400" />
+      </Grid>
+      <Grid Classes="row" ColumnDefinitions="90,*,48" IsVisible="{Binding HasAnimationOut}">
+        <TextBlock Classes="name" Text="Length" />
+        <Slider Grid.Column="1" Minimum="0.1" Maximum="5" Value="{Binding AnimationOutDuration}" SmallChange="0.1" />
+        <TextBlock Grid.Column="2" Classes="value" Text="{Binding AnimationOutDuration, StringFormat='{}{0:0.0} s'}" />
+      </Grid>
+
       <TextBlock Text="POSITION" Classes="section" />
       <Grid Classes="row" ColumnDefinitions="90,*,48">
         <TextBlock Classes="name" Text="Across" />

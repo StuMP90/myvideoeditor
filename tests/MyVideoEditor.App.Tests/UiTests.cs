@@ -75,6 +75,35 @@ public class UiTests
         frame?.Save(Path.Combine(dir, name + ".png"));
     }
 
+    [Fact]
+    public void File_dialogs_start_in_the_first_remembered_folder_that_still_exists()
+    {
+        var existing = TestMedia.NewOutputDirectory();
+        var gone = Path.Combine(existing, "deleted-since");
+        Assert.Equal(existing, DialogService.ExistingFolder([null, "", gone, existing, Path.GetTempPath()]));
+        Assert.Null(DialogService.ExistingFolder([null, gone]));
+    }
+
+    [AvaloniaFact]
+    public void Folders_used_in_dialogs_are_remembered()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        var media = Media(() => TestMedia.PatternAsync(2, 320, 240));
+        Await(editor.ImportFilesAsync([media], addToTimeline: true));
+        Assert.Equal(Path.GetDirectoryName(media), AppSettings.Load().LastMediaFolder); // where Import media and Add files start
+        var project = Path.Combine(TestMedia.NewOutputDirectory(), "remember.mveproj");
+        Await(editor.OpenProjectFileAsync(SaveProject(editor, project)));
+        Assert.Equal(Path.GetDirectoryName(project), AppSettings.Load().LastProjectFolder); // where Open project starts
+        window.CloseWithoutPrompt();
+    }
+
+    private static string SaveProject(EditorViewModel editor, string path)
+    {
+        Core.Model.ProjectSerializer.Save(editor.Project, path);
+        return path;
+    }
+
     [AvaloniaFact]
     public void Starts_with_an_empty_project_on_the_edit_tab()
     {
@@ -274,6 +303,112 @@ public class UiTests
         Await(editor.FlushPreviewAsync());
         Assert.True(editor.PreviewIsCurrent);
         Assert.DoesNotContain("failed", editor.Status);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Titles_get_pictures_and_animations_and_Lottie_text_can_be_changed()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(4, 320, 240))], addToTimeline: true));
+        editor.Seek(0);
+        editor.AddTitleCommand.Execute(EditorViewModel.TitleTemplates[5]); // end card
+        var inspector = editor.Inspector!;
+        var title = editor.Inspector!.ClipId;
+
+        // A picture, chosen through the editor's dialog (stood in for here).
+        var picture = Media(() => TestMedia.ImageAsync("red", 200, 100));
+        inspector.PickImage = () => Task.FromResult<string?>(picture);
+        Await(inspector.ChooseImageCommand.ExecuteAsync(null));
+        inspector = editor.Inspector!;
+        Assert.True(inspector.HasImage);
+        Assert.Equal(Path.GetFileName(picture), inspector.ImageName);
+        inspector.ImagePlacementIndex = (int)TitleImagePlacement.Left;
+        Assert.Equal(TitleImagePlacement.Left, ((TitleClip)editor.Project.FindClip(title)!.Value.Clip).ImagePlacement);
+
+        // Animations in and out.
+        inspector = editor.Inspector!;
+        inspector.AnimationInIndex = (int)TitleMotion.Typewriter;
+        inspector = editor.Inspector!;
+        inspector.AnimationOutIndex = (int)TitleMotion.SlideBottom;
+        inspector = editor.Inspector!;
+        Assert.True(inspector.HasAnimationIn && inspector.HasAnimationOut);
+        var clip = (TitleClip)editor.Project.FindClip(title)!.Value.Clip;
+        Assert.True(clip.IsAnimated);
+        editor.Seek(0.3);
+        Await(editor.FlushPreviewAsync());
+        Assert.True(editor.PreviewIsCurrent);
+        Assert.DoesNotContain("failed", editor.Status);
+        Screenshot(window, "08-animated-title");
+
+        // A Lottie animation: its text layer is listed and can be given new text.
+        Await(editor.ImportFilesAsync([TestMedia.Lottie()], addToTimeline: true));
+        var animation = editor.Project.AllClips().Select(x => x.Clip).OfType<MediaClip>()
+            .First(c => editor.Project.FindMedia(c.MediaId)!.Kind == Core.Media.MediaKind.Animation);
+        Assert.Contains(editor.Media, m => m.KindLabel == "✦");
+        editor.Select(animation.Id);
+        Pump();
+        inspector = editor.Inspector!;
+        Assert.True(inspector.IsAnimationMedia);
+        var text = Assert.Single(inspector.AnimationTexts);
+        Assert.Equal(("Title", "Hello"), (text.Name, text.Text));
+        text.Text = "Welcome";
+        Assert.Equal("Welcome", ((MediaClip)editor.Project.FindClip(animation.Id)!.Value.Clip).TextOverrides["Title"]);
+        // The same row object stays (so typing isn't interrupted), showing the new text.
+        Assert.Same(text, Assert.Single(editor.Inspector!.AnimationTexts));
+        Assert.Equal("Welcome", text.Text);
+        text.Text = "Hello"; // back to the original: no override kept
+        Assert.Empty(((MediaClip)editor.Project.FindClip(animation.Id)!.Value.Clip).TextOverrides);
+        editor.Seek(animation.Start + 0.5);
+        Await(editor.FlushPreviewAsync());
+        Assert.True(editor.PreviewIsCurrent);
+        Assert.DoesNotContain("failed", editor.Status);
+        window.CloseWithoutPrompt();
+    }
+
+    [AvaloniaFact]
+    public void Scrolling_title_templates_and_Lottie_picture_warnings()
+    {
+        var (window, vm) = Open();
+        var editor = vm.Editor;
+        Await(editor.ImportFilesAsync([Media(() => TestMedia.PatternAsync(4, 320, 240))], addToTimeline: true));
+        foreach (var (name, scroll) in new[] { ("Credits roll", TitleScroll.Credits), ("Opening crawl", TitleScroll.Crawl), ("News ticker", TitleScroll.Ticker) })
+        {
+            editor.Seek(0);
+            editor.AddTitleCommand.Execute(EditorViewModel.TitleTemplates.First(t => t.Label == name));
+            var inspector = editor.Inspector!;
+            Assert.Equal((int)scroll, inspector.ScrollIndex);
+            Assert.True(inspector.IsScrolling);
+            Assert.False(inspector.HasAnimationIn); // in/out animations don't apply while scrolling
+            Assert.Contains(scroll == TitleScroll.Ticker ? "Loop repeats" : "Speed", inspector.ScrollNote);
+            editor.Seek(5);
+            Await(editor.FlushPreviewAsync());
+            Assert.True(editor.PreviewIsCurrent);
+            Assert.DoesNotContain("failed", editor.Status);
+            if (scroll == TitleScroll.Crawl)
+                Screenshot(window, "09-opening-crawl");
+            if (scroll == TitleScroll.Ticker)
+            {
+                // The template loops at a steady speed; one click stretches it over all the footage.
+                Assert.True(inspector.ScrollLoop);
+                Assert.Equal("150", inspector.ScrollSpeedText);
+                inspector.CoverVideoCommand.Execute(null);
+                var ticker = editor.Project.FindClip(inspector.ClipId)!.Value.Clip;
+                Assert.Equal(4, ticker.End, 2); // the 4 s video's end, rather than the template's 15 s
+                editor.Select(ticker.Id);
+            }
+            editor.DeleteCommand.Execute(null);
+        }
+
+        // A Lottie file with pictures imports, with a note that its pictures aren't shown.
+        Await(editor.ImportFilesAsync([TestMedia.LottieWithPicture()], addToTimeline: true));
+        Assert.Contains("pictures", editor.Status);
+        var animation = editor.Project.AllClips().Select(x => x.Clip).OfType<MediaClip>()
+            .First(c => editor.Project.FindMedia(c.MediaId)!.Kind == Core.Media.MediaKind.Animation);
+        editor.Select(animation.Id);
+        Pump();
+        Assert.True(editor.Inspector!.AnimationHasPictures);
         window.CloseWithoutPrompt();
     }
 

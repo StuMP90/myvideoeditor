@@ -76,6 +76,8 @@ public sealed class MediaClip : Clip
     public int CropTop { get; set; }
     public int CropRight { get; set; }
     public int CropBottom { get; set; }
+    /// <summary>Lottie animations: replacement text for text layers, by layer name.</summary>
+    public Dictionary<string, string> TextOverrides { get; set; } = [];
 
     /// <summary>Source time used at the end of the clip.</summary>
     [JsonIgnore]
@@ -115,6 +117,77 @@ public sealed class TitleClip : Clip
     public double BoxOpacity { get; set; } = 0.6;
     /// <summary>Fill the whole frame with this colour behind the text ("" = transparent): title cards.</summary>
     public string BackgroundColor { get; set; } = "";
+
+    /// <summary>A picture shown with the text, such as a logo ("" = none): PNG, JPEG, WebP, BMP or GIF.</summary>
+    public string ImagePath { get; set; } = "";
+    public TitleImagePlacement ImagePlacement { get; set; } = TitleImagePlacement.Above;
+    /// <summary>The picture's height in pixels of a 1080-pixel-high frame (not for a background, which fills the frame).</summary>
+    public double ImageSize { get; set; } = 240;
+
+    /// <summary>How the title comes in, over <see cref="AnimationInDuration"/> seconds from its start.</summary>
+    public TitleMotion AnimationIn { get; set; }
+    public double AnimationInDuration { get; set; } = 0.8;
+    /// <summary>How it goes out, over the last <see cref="AnimationOutDuration"/> seconds.</summary>
+    public TitleMotion AnimationOut { get; set; }
+    public double AnimationOutDuration { get; set; } = 0.6;
+
+    /// <summary>
+    /// Scrolls the text through the frame over the clip's whole length (its length sets the speed).
+    /// In and out animations don't apply to a scrolling title.
+    /// </summary>
+    public TitleScroll Scroll { get; set; }
+    /// <summary>Scrolling speed in pixels per second of a 1080-pixel-high frame; 0 = fit the scroll to the clip's length.</summary>
+    public double ScrollSpeed { get; set; }
+    /// <summary>Tickers: repeat the text seamlessly for as long as the clip lasts (at <see cref="ScrollSpeed"/>).</summary>
+    public bool ScrollLoop { get; set; }
+
+    /// <summary>A looping ticker's speed when none is set (pixels per second at 1080p).</summary>
+    public const double DefaultTickerSpeed = 150;
+
+    [JsonIgnore]
+    public bool IsAnimated => Scroll == TitleScroll.None
+                              && (AnimationIn != TitleMotion.None && AnimationInDuration > 0.01
+                                  || AnimationOut != TitleMotion.None && AnimationOutDuration > 0.01);
+}
+
+public enum TitleScroll
+{
+    None,
+    /// <summary>End credits: up from below the frame and off the top. Lines written "Role | Name" form two columns.</summary>
+    Credits,
+    /// <summary>An opening crawl: justified text receding up into the distance, fading as it goes.</summary>
+    Crawl,
+    /// <summary>A news ticker: one line from right to left, at the title's height.</summary>
+    Ticker,
+}
+
+public enum TitleImagePlacement
+{
+    Above,
+    Below,
+    Left,
+    Right,
+    /// <summary>Fills the frame behind the text (cropped to fit), as on a title card.</summary>
+    Background,
+}
+
+/// <summary>
+/// Title animations. Coming in, a slide arrives from that side; going out, it leaves towards it.
+/// Typewriter, words and lines build the text up (in) or take it away in reverse (out).
+/// </summary>
+public enum TitleMotion
+{
+    None,
+    SlideLeft,
+    SlideRight,
+    SlideTop,
+    SlideBottom,
+    Rise,
+    Grow,
+    Wipe,
+    Typewriter,
+    Words,
+    Lines,
 }
 
 public enum AnnotationShape

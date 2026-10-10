@@ -28,7 +28,7 @@ public sealed class FrameGrabber
         foreach (var a in new[] { "-hide_banner", "-loglevel", "error", "-ss", F(Math.Max(0, time)), "-i", info.Path, "-frames:v", "1",
                      "-vf", string.Join(',', filters), "-f", "rawvideo", "pipe:1" })
             psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
+        using var p = ChildProcess.Start(psi, isFfmpeg: true);
         _ = p.StandardError.ReadToEndAsync(CancellationToken.None);
         await using var reg = cancellationToken.Register(() =>
         {
