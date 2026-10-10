@@ -317,6 +317,7 @@ public sealed class PlaybackEngine : IDisposable
             try
             {
                 var reader = _frames.Reader;
+                var first = true;
                 while (!token.IsCancellationRequested)
                 {
                     if (!reader.TryRead(out var frame))
@@ -337,8 +338,10 @@ public sealed class PlaybackEngine : IDisposable
                             break;
                         Thread.Sleep(TimeSpan.FromSeconds(Math.Min(wait, 0.02)));
                     }
-                    // Late by more than a frame and a newer one is ready: drop this one.
-                    if (Clock() - frame.Time > frameTime * 1.5 && reader.TryPeek(out var next) && next.Time <= Clock())
+                    // Late by more than a frame and a newer one is ready: drop this one. Never the first,
+                    // though: the sound's clock doesn't wait for the picture, and if the picture starts
+                    // slowly, playback should still start on the frame where Play was pressed.
+                    if (!first && Clock() - frame.Time > frameTime * 1.5 && reader.TryPeek(out var next) && next.Time <= Clock())
                     {
                         frame.Dispose();
                         continue;
@@ -348,6 +351,7 @@ public sealed class PlaybackEngine : IDisposable
                         frame.Dispose();
                         break;
                     }
+                    first = false;
                     var handler = _engine.FrameReady;
                     if (handler != null)
                         handler(frame);
