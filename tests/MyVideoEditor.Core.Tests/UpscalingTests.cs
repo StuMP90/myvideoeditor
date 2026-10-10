@@ -192,7 +192,8 @@ public class UpscalingTests
               "{{TestMedia.Locator.FfmpegPath}}" -v error -i "$f" -vf "scale=iw*$SCALE:ih*$SCALE:flags=neighbor" -y "$OUT/$(basename "$f")"
             done
             """);
-        File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return script;
     }
 

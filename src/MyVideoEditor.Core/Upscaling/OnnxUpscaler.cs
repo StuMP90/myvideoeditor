@@ -250,7 +250,10 @@ public sealed class OnnxUpscaler
                     }
 
                 using var inputValue = OrtValue.CreateTensorValueFromMemory(input, [1, channels, th, tw]);
-                using var results = _session.Run(new RunOptions(), [_inputName], [inputValue], [_outputName]);
+                // The options are disposed only after Run: a temporary could be finalized (freeing its
+                // native handle) while Run still uses it, which crashed Release builds.
+                using var options = new RunOptions();
+                using var results = Run(options, inputValue);
                 var result = results[0].GetTensorDataAsSpan<float>();
 
                 // Keep only the tile itself (scaled), not the margin.
@@ -271,6 +274,19 @@ public sealed class OnnxUpscaler
                     }
             }
         }
+    }
+
+    /// <summary>
+    /// Sessions are shared between upscalers. ONNX Runtime allows concurrent runs on the CPU, but not
+    /// on one DirectML session, so those take turns.
+    /// </summary>
+    private IDisposableReadOnlyCollection<OrtValue> Run(RunOptions options, OrtValue input)
+    {
+        var session = _session;
+        if (_device == "CPU")
+            return session.Run(options, [_inputName], [input], [_outputName]);
+        lock (session)
+            return session.Run(options, [_inputName], [input], [_outputName]);
     }
 
     /// <summary>
