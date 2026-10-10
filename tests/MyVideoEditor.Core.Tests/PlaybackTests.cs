@@ -7,6 +7,8 @@ using MyVideoEditor.Core.Rendering;
 
 namespace MyVideoEditor.Core.Tests;
 
+// Playback is paced in real time and some tests time it, so it runs apart from the CPU-heavy tests.
+[Collection(nameof(RunAlone))]
 public class PlaybackTests
 {
     /// <summary>An audio "device" that plays in real time into nothing.</summary>

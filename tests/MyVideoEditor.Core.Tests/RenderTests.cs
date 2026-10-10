@@ -107,7 +107,8 @@ public class RenderTests
                 if (rgb[i] > 220 && rgb[i + 1] > 220 && rgb[i + 2] > 220)
                     white++;
             }
-        Assert.True(white > 100, $"expected title text, found {white} white pixels");
+        // The default font differs between computers (Noto Sans here, DejaVu Sans or Segoe UI on CI).
+        Assert.True(white > 50, $"expected title text, found {white} white pixels");
         Assert.True(TestMedia.Near(TestMedia.PixelAt(output, 1, 20, 20), (0, 255, 0)));
     }
 
@@ -430,9 +431,12 @@ public class RenderTests
         }
         if (n == 0)
             return (0, double.NaN, double.NaN, 0, 0);
-        var top = rows[rows.Keys.Min()];
-        var bottom = rows[rows.Keys.Max()];
-        return (n, sx / n, sy / n, top.Max - top.Min, bottom.Max - bottom.Min);
+        // The widest row in the top and bottom fifth of the text, not just its first and last rows,
+        // which can be a lone accent or descender.
+        var (first, last) = (rows.Keys.Min(), rows.Keys.Max());
+        var band = Math.Max(1, (last - first) / 5);
+        int Widest(Func<int, bool> inBand) => rows.Where(r => inBand(r.Key)).Max(r => r.Value.Max - r.Value.Min);
+        return (n, sx / n, sy / n, Widest(y => y <= first + band), Widest(y => y >= last - band));
     }
 
     private static async Task<EditSession> ScrollSession(TitleScroll scroll, string text, string background = "", string color = "#FFFFFF")
@@ -630,7 +634,7 @@ public class RenderTests
         var text = p.StandardOutput.ReadToEnd();
         p.WaitForExit();
         // Streams are numbered in file order (a DVD file starts with navigation data); name them by type.
-        var raw = text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        var raw = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(line => (Key: line[..line.IndexOf('=')], Value: line[(line.IndexOf('=') + 1)..].Trim('"'))).ToList();
         var types = raw.Where(r => r.Key.EndsWith(".codec_type")).ToDictionary(r => r.Key[..^"codec_type".Length], r => r.Value);
         var result = new Dictionary<string, string>();
@@ -738,7 +742,7 @@ public class RenderTests
         foreach (var a in new[] { "-v", "error", "-show_chapters", "-of", "csv=p=0", output })
             psi.ArgumentList.Add(a);
         using var p = ChildProcess.Start(psi);
-        var lines = p.StandardOutput.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = p.StandardOutput.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         p.WaitForExit();
         // id, time base, start, start_time, end, end_time, title
         Assert.Equal(3, lines.Length);

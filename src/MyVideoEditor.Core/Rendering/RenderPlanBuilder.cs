@@ -360,7 +360,9 @@ public static class RenderPlanBuilder
         if (strip != null)
         {
             var clipTime = item.RenderStart - title.Start + span.LocalOffset; // the clip's time at the first frame shown
-            var length = Math.Max(0.01, title.Duration);
+            // "Fit" reaches the end of the strip on the clip's last frame (one frame before its end), so
+            // credits are fully off screen by then whatever the font's spacing below the last line.
+            var length = Math.Max(0.01, title.Duration - 1 / c.Fps);
             // How far along the strip the window is: at a set speed (scaled to this frame size), or
             // all of it over the clip's length. A looping ticker goes round its repeating part after the first pass.
             string Travel(int distance)
