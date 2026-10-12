@@ -782,6 +782,11 @@ public partial class UiTests
         Assert.True(convert.ShowsAiStrength);
         convert.AiStrength = 40;
         Assert.Equal(0.4, convert.BuildSettings().Settings!.AiStrength, 3);
+        convert.SelectedScaling = convert.Scalings.First(o => o.Method.Algorithm == Core.Conversion.ScaleAlgorithm.CleanUp);
+        Assert.True(convert.ShowsAiStrength);
+        var cleanUp = new Core.Conversion.ConversionSettings { Format = Core.Export.OutputFormats.Mp4H264, Algorithm = Core.Conversion.ScaleAlgorithm.CleanUp, Width = 1280, Height = 720, AiStrength = 0.7 };
+        Assert.Equal("-1280x720-SmallSR-70%", ConvertViewModel.SuffixFor(cleanUp, true));
+        Assert.Equal("-1280x720-SmallSR", ConvertViewModel.SuffixFor(cleanUp with { AiStrength = 1 }, true));
         window.CloseWithoutPrompt();
     }
 

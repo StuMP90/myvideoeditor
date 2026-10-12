@@ -8,9 +8,9 @@ namespace MyVideoEditor.Core.Upscaling;
 
 /// <summary>
 /// The ffmpeg that turns upscaled frames (piped in) into the output: scaled to the exact size,
-/// padded or cropped, with the source's sound, and for AI methods optionally mixed with a
-/// faithful Lanczos enlargement of the same frame ("AI strength"), which keeps real texture that
-/// the AI would otherwise paint over. Frames are paired by number, so they can't drift apart.
+/// padded or cropped, with the source's sound, and for AI methods and Clean-up optionally mixed
+/// with a faithful Lanczos enlargement of the same frame ("Strength"), which keeps real texture that
+/// the model would otherwise paint over. Frames are paired by number, so they can't drift apart.
 /// </summary>
 internal static class UpscaleEncoder
 {
@@ -20,7 +20,7 @@ internal static class UpscaleEncoder
     {
         var withAudio = info.HasAudio && !s.RemoveAudio && s.Format.HasAudio;
         var strength = Math.Clamp(s.AiStrength, 0, 1);
-        var blend = UpscaleMethods.Get(s.Algorithm).IsAi && strength < 0.995;
+        var blend = UpscaleMethods.Get(s.Algorithm).HasStrength && strength < 0.995;
         var args = new List<string> { "-hide_banner", "-loglevel", "error" };
         args.AddRange(frameInput);
         if (withAudio || blend)

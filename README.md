@@ -100,6 +100,7 @@ the moment worth checking.
 | Lanczos, bicubic, spline, Enhanced | CPU | anything; fast | ~30 ms per frame |
 | **Sharper detail** (ArtCNN C4F32, ONNX) | CPU anywhere; graphics card on Windows (DirectML) | anything | ~0.1–0.2 s per frame |
 | **Cleaner lines** (Anime4K shaders via libplacebo) | any Vulkan GPU | animation, screen recordings | ~0.1 s per frame |
+| **Clean-up (fast)** (SmallSR, ONNX; INT8 on the CPU) | CPU anywhere; graphics card on Windows | compressed or soft video | ~0.03–0.05 s per frame |
 | **AI: animation and screen** (Real-ESRGAN animevideov3, ONNX) | CPU; graphics card on Windows | animation, screen recordings | ~1 s per frame |
 | **AI: realistic detail** (Real-ESRGAN general-x4v3, ONNX) | CPU; graphics card on Windows | camera footage | ~2 s per frame |
 | **AI: anime, strongest** (Real-CUGAN, ONNX) | CPU; graphics card on Windows | anime | ~1.5 s per frame |
@@ -109,11 +110,16 @@ the moment worth checking.
   720p frames of a camera clip, it was the most faithful method tested (SSIM 0.9911, PSNR 46.8 dB,
   against Lanczos's 0.9907 / 46.2 dB) and visibly crisper. It replaced FSRCNNX, which scored below
   Lanczos.
-- **AI strength** (AI methods): the AI's picture is mixed with a faithful Lanczos enlargement of the
+- **SmallSR** is a tiny luma network (57,000 weights) trained for MyVideoEditor on public-domain,
+  CC BY and own footage. It doubles the size once, removing compression blocks and blur, and Lanczos
+  does the rest (two passes looked too smooth). On compressed 540p frames it scored above ArtCNN
+  (PSNR 29.6 against 29.2 dB); on clean frames ArtCNN keeps more detail (35.2 against 33.3 dB). The
+  CPU uses an INT8 copy (73 KB), 1.4–2× faster than the full-precision model (29 against 58 ms for a 360p frame on 10 threads).
+- **Strength** (Clean-up and the AI methods): the model's picture is mixed with a faithful Lanczos enlargement of the
   same frame. GAN-trained models such as Real-ESRGAN invent texture and can paint over real detail;
   30–50% keeps most of the real picture while sharpening edges (on the camera clip, 30% raised
   fidelity from 37.9 to 44.8 dB).
-- **ONNX models** (ArtCNN, the two compact Real-ESRGAN models and Real-CUGAN's three, 15.6 MB together) ship with the app
+- **ONNX models** (ArtCNN, SmallSR, the two compact Real-ESRGAN models and Real-CUGAN's three, 15.9 MB together) ship with the app
   in a `models` folder and run in-process through ONNX Runtime: on the CPU anywhere, and on Windows
   on any DirectX 12 graphics card through DirectML, falling back to the CPU if that isn't possible.
   `MYVIDEOEDITOR_ONNX_DEVICE=cpu` forces the CPU. On integrated graphics, ONNX Runtime's CPU kernels
@@ -146,7 +152,7 @@ the moment worth checking.
   card (Convert tab → CPU and heat, with the method selected).
 - Every downloadable component is pinned to an exact file and SHA-256 checksum in
   `src/MyVideoEditor.Core/Upscaling/components.json`. Downloads go to the data folder under
-  `tools/`. Licences: ArtCNN MIT, Anime4K MIT, Real-ESRGAN MIT (program) and BSD-3-Clause (models),
+  `tools/`. Licences: ArtCNN MIT, SmallSR MIT (this project), Anime4K MIT, Real-ESRGAN MIT (program) and BSD-3-Clause (models),
   Real-CUGAN MIT, ncnn BSD-3-Clause, ONNX Runtime MIT, DirectML Microsoft redistributable licence;
   the texts of everything shipped go into `THIRD-PARTY-NOTICES.txt`.
 - Vulkan GPUs (for Anime4K and the ncnn programs) are chosen dedicated first, then integrated;

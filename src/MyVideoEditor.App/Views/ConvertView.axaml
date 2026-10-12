@@ -156,8 +156,8 @@
                 </ComboBox>
                 <TextBlock Text="{Binding ScalingDescription}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
                 <Grid ColumnDefinitions="110,*,44" IsVisible="{Binding ShowsAiStrength}"
-                      ToolTip.Tip="How much of the AI's picture to use; the rest is a faithful Lanczos enlargement of the same frame. Lower values keep more real texture (30–50% works well for camera footage).">
-                  <TextBlock Classes="name" Text="AI strength" />
+                      ToolTip.Tip="How much of the model's picture to use; the rest is a faithful Lanczos enlargement of the same frame. Lower values keep more real texture (30–50% works well for camera footage with the AI methods).">
+                  <TextBlock Classes="name" Text="Strength" />
                   <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding AiStrength}" Margin="0,-6" />
                   <TextBlock Grid.Column="2" Text="{Binding AiStrengthText}" VerticalAlignment="Center" HorizontalAlignment="Right" FontSize="12" />
                 </Grid>

@@ -73,11 +73,11 @@ optional components. It must be live at that URL, so push PRIVACY.md to `main` b
 > Convert a batch of files between formats; resize, trim, rotate and deinterlace them; change the
 > frame rate; or rewrap without re-encoding. Your originals are never changed.
 >
-> Upscale old or low-resolution video with built-in AI models: Real-ESRGAN, Real-CUGAN and ArtCNN.
+> Upscale old or low-resolution video with built-in AI models: Real-ESRGAN, Real-CUGAN, ArtCNN and SmallSR.
 > They run on your graphics card (DirectX 12) or on the processor. "Test speed on this PC"
 > recommends the best method that finishes in reasonable time. "Compare all methods" shows one
 > frame through every method side by side, so you can choose before a long conversion. A strength
-> control blends the AI with the real picture, so faces and textures stay natural. "CPU and heat"
+> control blends the model with the real picture, so faces and textures stay natural. "CPU and heat"
 > settings keep laptops cool on long jobs.
 >
 > **RECORD AND ANNOTATE**
@@ -113,7 +113,7 @@ For the first submission:
 7. Export MP4, WebM, MKV, MOV, GIF and audio, from vertical video to 4K
 8. Chapters and DVD-Video export (NTSC/PAL) for burning to disc
 9. Batch convert, resize, trim and rotate without touching your originals
-10. Upscale with local AI (Real-ESRGAN, Real-CUGAN, ArtCNN) on your graphics card or CPU
+10. Upscale with local AI (Real-ESRGAN, Real-CUGAN, ArtCNN, SmallSR) on your graphics card or CPU
 11. Compare every upscaling method side by side before converting
 12. Record a window, screen or region with your microphone
 13. Annotate recordings and screenshots with arrows, callouts, steps, zoom and blur

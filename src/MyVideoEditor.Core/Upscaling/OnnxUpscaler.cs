@@ -15,10 +15,14 @@ public enum OnnxChannels
 /// <summary>
 /// An upscaling model run with ONNX Runtime, shipped in the app's "models" folder. Its input's sides
 /// must be a multiple of <paramref name="Multiple"/> and at least <paramref name="MinimumSide"/>.
+/// <paramref name="CpuFile"/>, when set, is a version of the model run on the CPU instead (e.g. INT8,
+/// faster there; DirectML keeps the FP32 <paramref name="File"/>).
 /// </summary>
-public sealed record OnnxModel(string Id, string File, OnnxChannels Channels, int Scale, int TileSize, int Multiple = 1, int MinimumSide = 1)
+public sealed record OnnxModel(string Id, string File, OnnxChannels Channels, int Scale, int TileSize, int Multiple = 1, int MinimumSide = 1, string? CpuFile = null)
 {
     public static readonly OnnxModel ArtCnn = new("artcnn-c4f32", "ArtCNN_C4F32.onnx", OnnxChannels.Luma, 2, 1024);
+    /// <summary>SmallSR (this project's own, 57k parameters): INT8 on the CPU, FP32 on the graphics card.</summary>
+    public static readonly OnnxModel SmallSr = new("smallsr-x2", "SmallSR_x2.onnx", OnnxChannels.Luma, 2, 1024, CpuFile: "SmallSR_x2_int8.onnx");
     public static readonly OnnxModel RealEsrganAnimation = new("realesr-animevideov3", "realesr-animevideov3.onnx", OnnxChannels.Rgb, 4, 256);
     public static readonly OnnxModel RealEsrganGeneral = new("realesr-general-x4v3", "realesr-general-x4v3.onnx", OnnxChannels.Rgb, 4, 256);
     /// <summary>x4plus is large (RRDBNet): smaller tiles keep graphics-card memory use modest.</summary>
@@ -29,7 +33,8 @@ public sealed record OnnxModel(string Id, string File, OnnxChannels Channels, in
     public static readonly OnnxModel RealCugan4x = new("realcugan-x4", "realcugan-x4.onnx", OnnxChannels.Rgb, 4, 256, 2, 40);
 
     public string Path => System.IO.Path.Combine(AppContext.BaseDirectory, "models", File);
-    public bool IsPresent => System.IO.File.Exists(Path);
+    public string CpuPath => CpuFile == null ? Path : System.IO.Path.Combine(AppContext.BaseDirectory, "models", CpuFile);
+    public bool IsPresent => System.IO.File.Exists(Path) && System.IO.File.Exists(CpuPath);
 }
 
 /// <summary>
@@ -59,7 +64,10 @@ public static class OnnxEngine
     private static (InferenceSession, string) Create(OnnxModel model, Conversion.ResourceLimits limits)
     {
         if (!model.IsPresent)
-            throw new FileNotFoundException($"The {model.File} model is missing from the app's models folder.", model.Path);
+        {
+            var missing = System.IO.File.Exists(model.Path) ? model.CpuPath : model.Path;
+            throw new FileNotFoundException($"The {System.IO.Path.GetFileName(missing)} model is missing from the app's models folder.", missing);
+        }
         var preference = Environment.GetEnvironmentVariable(DeviceEnvironmentVariable)?.ToLowerInvariant()
                          ?? (limits.Device == Conversion.AiDevice.Cpu ? "cpu" : limits.Device == Conversion.AiDevice.Gpu ? "gpu" : null);
         if (OperatingSystem.IsWindows() && preference != "cpu")
@@ -92,7 +100,7 @@ public static class OnnxEngine
             InterOpNumThreads = 1,
         };
         Log.Info("onnx", $"{model.Id}: running on the CPU ({limits.Threads} threads{(limits.LowPriority ? ", low priority" : "")}).");
-        return (new InferenceSession(model.Path, cpu), "CPU");
+        return (new InferenceSession(model.CpuPath, cpu), "CPU");
     }
 }
 

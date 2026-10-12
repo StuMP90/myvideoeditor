@@ -39,6 +39,8 @@ public enum ScaleAlgorithm
     AiAnime,
     /// <summary>Real-ESRGAN x4plus: camera footage, very slow.</summary>
     AiPhoto,
+    /// <summary>SmallSR (ONNX, INT8 on the CPU, FP32 on DirectML): fast clean-up of compressed or low-resolution footage.</summary>
+    CleanUp,
 }
 
 public sealed record ConversionSettings

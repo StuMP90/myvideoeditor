@@ -279,6 +279,7 @@ public class UpscalingTests
     [Theory]
     [InlineData(ScaleAlgorithm.ArtCnn)]
     [InlineData(ScaleAlgorithm.GpuLines)]
+    [InlineData(ScaleAlgorithm.CleanUp)]
     [InlineData(ScaleAlgorithm.AiAnimation)]
     [InlineData(ScaleAlgorithm.AiGeneral)]
     [InlineData(ScaleAlgorithm.AiAnime)]
@@ -364,6 +365,7 @@ public class UpscalingTests
     [InlineData(ScaleAlgorithm.Lanczos)]
     [InlineData(ScaleAlgorithm.ArtCnn)]
     [InlineData(ScaleAlgorithm.GpuLines)]
+    [InlineData(ScaleAlgorithm.CleanUp)]
     [InlineData(ScaleAlgorithm.AiGeneral)]
     [InlineData(ScaleAlgorithm.AiAnime)]
     [InlineData(ScaleAlgorithm.AiAnime, true)]
@@ -456,10 +458,11 @@ public class UpscalingTests
 
     [Theory]
     [InlineData("artcnn")]
+    [InlineData("smallsr")]
     [InlineData("general")]
     public async Task Onnx_tiles_join_without_seams(string which)
     {
-        var model = which == "artcnn" ? OnnxModel.ArtCnn : OnnxModel.RealEsrganGeneral;
+        var model = which switch { "artcnn" => OnnxModel.ArtCnn, "smallsr" => OnnxModel.SmallSr, _ => OnnxModel.RealEsrganGeneral };
         var luma = model.Channels == OnnxChannels.Luma;
         var (w, h) = (96, 72);
         // A real picture: a frame of the test pattern, as the model will get it.
@@ -510,6 +513,29 @@ public class UpscalingTests
     }
 
     [Fact]
+    public void Clean_up_runs_its_model_once_and_mixes_without_counting_as_ai()
+    {
+        // Two passes of SmallSR look too smooth: one 2x pass, then Lanczos does the rest.
+        var method = UpscaleMethods.Get(ScaleAlgorithm.CleanUp);
+        Assert.Same(OnnxModel.SmallSr, method.OnnxModelFor(4));
+        Assert.Equal([OnnxModel.SmallSr], method.OnnxScales);
+        Assert.False(method.IsAi);
+        Assert.True(method.HasStrength);
+        Assert.False(UpscaleMethods.Get(ScaleAlgorithm.ArtCnn).HasStrength);
+        Assert.True(UpscaleMethods.Get(ScaleAlgorithm.AiGeneral).HasStrength);
+    }
+
+    [Fact]
+    public void Onnx_models_can_use_a_smaller_file_on_the_cpu()
+    {
+        Assert.EndsWith("SmallSR_x2_int8.onnx", OnnxModel.SmallSr.CpuPath);
+        Assert.EndsWith("SmallSR_x2.onnx", OnnxModel.SmallSr.Path);
+        Assert.Equal(OnnxModel.ArtCnn.Path, OnnxModel.ArtCnn.CpuPath);
+        Assert.True(OnnxModel.SmallSr.IsPresent);
+        Assert.False((OnnxModel.SmallSr with { CpuFile = "missing.onnx" }).IsPresent);
+    }
+
+    [Fact]
     public async Task Ai_strength_mixes_in_a_faithful_enlargement()
     {
         var source = await TestMedia.PatternAsync(0.2, 64, 48);
@@ -531,6 +557,11 @@ public class UpscalingTests
         var halfToLanczos = TestMedia.Ssim(half, lanczos);
         Assert.True(halfToLanczos < TestMedia.Ssim(none, lanczos) && halfToLanczos > TestMedia.Ssim(full, lanczos), "50% lies in between");
         Assert.Equal(TestMedia.FrameCount(source), TestMedia.FrameCount(half));
+
+        var cleanNone = await Convert(ScaleAlgorithm.CleanUp, 0);
+        var cleanFull = await Convert(ScaleAlgorithm.CleanUp, 1);
+        Assert.True(TestMedia.Ssim(cleanNone, lanczos) > 0.985, "0% Clean-up is a plain Lanczos enlargement");
+        Assert.True(TestMedia.Ssim(cleanFull, lanczos) < TestMedia.Ssim(cleanNone, lanczos), "100% Clean-up differs from Lanczos");
     }
 
     [Fact]

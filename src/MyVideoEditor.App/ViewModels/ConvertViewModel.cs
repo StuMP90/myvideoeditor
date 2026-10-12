@@ -153,7 +153,7 @@ public sealed partial class ConvertViewModel : ObservableObject
     }
 
     public string AiStrengthText => $"{AiStrength:0}%";
-    public bool ShowsAiStrength => SelectedScaling.Method.IsAi;
+    public bool ShowsAiStrength => SelectedScaling.Method.HasStrength;
     public bool ScalingNeedsDownload => SelectedScaling.IsAvailable && SelectedScaling.Method.NeedsDownload;
     public string DownloadLabel => $"Download {SelectedScaling.Method.Component?.Label} ({Shell.FormatSize(SelectedScaling.Method.DownloadSize)})";
     public bool CanTestSpeed => !IsBusy && !IsRunning && Jobs.Count > 0 && ResizeEnabled;
@@ -222,7 +222,7 @@ public sealed partial class ConvertViewModel : ObservableObject
     }
 
     public string AiDeviceNote => OperatingSystem.IsWindows()
-        ? "Graphics card: ArtCNN and the Real-ESRGAN and Real-CUGAN models run on it through DirectML (moving to smaller pieces, then the CPU, if it runs out of memory)."
+        ? "Graphics card: ArtCNN, SmallSR and the Real-ESRGAN and Real-CUGAN models run on it through DirectML (moving to smaller pieces, then the CPU, if it runs out of memory)."
         : "On Linux the graphics card applies to the Real-ESRGAN and Real-CUGAN models, through their Vulkan programs (download below, with the method selected). " +
           "Automatic uses whichever the speed test found faster. Other methods use the CPU.";
 
@@ -916,7 +916,7 @@ public sealed partial class ConvertViewModel : ObservableObject
         {
             parts.Add(s.Width != null && s.Height != null ? $"{s.Width}×{s.Height} ({s.ResizeMode})" : s.Height != null ? $"{s.Height}p" : $"{s.Width} wide");
             var method = UpscaleMethods.Get(s.Algorithm);
-            parts.Add(method.IsAi && s.AiStrength < 0.995 ? $"{method.Label}, {s.AiStrength * 100:0}%" : method.Label);
+            parts.Add(method.HasStrength && s.AiStrength < 0.995 ? $"{method.Label}, {s.AiStrength * 100:0}%" : method.Label);
         }
         if (s.FrameRate is { } fps)
             parts.Add($"{fps:0.##} fps");
@@ -981,9 +981,10 @@ public sealed partial class ConvertViewModel : ObservableObject
             ScaleAlgorithm.AiGeneral => "AI-general",
             ScaleAlgorithm.AiAnime => "AI-CUGAN",
             ScaleAlgorithm.AiPhoto => "AI-photo",
+            ScaleAlgorithm.CleanUp => "SmallSR",
             var other => other.ToString(),
         };
-        var strength = UpscaleMethods.Get(s.Algorithm).IsAi && s.AiStrength < 0.995 ? $"-{s.AiStrength * 100:0}%" : "";
+        var strength = UpscaleMethods.Get(s.Algorithm).HasStrength && s.AiStrength < 0.995 ? $"-{s.AiStrength * 100:0}%" : "";
         return $"{size}-{method}{strength}";
     }
 

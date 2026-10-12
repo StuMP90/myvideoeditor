@@ -143,7 +143,7 @@ def main():
             read(source))
 
     # Upscaling models shipped with every build (src/MyVideoEditor.Core/Upscaling/Models).
-    for model in ["artcnn", "realesrgan-models", "realcugan-models"]:
+    for model in ["artcnn", "smallsr", "realesrgan-models", "realcugan-models"]:
         body = read(os.path.join(NOTICES, "upscalers", f"{model}.txt"))
         add(body.splitlines()[0].split(":")[0], [], body)
 

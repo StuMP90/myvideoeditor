@@ -59,7 +59,7 @@ public sealed partial class CompareAllViewModel : ObservableObject
             .ToList();
         Tiles.Add(new CompareTileViewModel("Original (enlarged, unsmoothed)", null));
         foreach (var m in runnable)
-            Tiles.Add(new CompareTileViewModel(m.IsAi && settings.AiStrength < 0.995 ? $"{m.Label}, {settings.AiStrength * 100:0}% strength" : m.Label, m));
+            Tiles.Add(new CompareTileViewModel(m.HasStrength && settings.AiStrength < 0.995 ? $"{m.Label}, {settings.AiStrength * 100:0}% strength" : m.Label, m));
         var missing = methods.Where(m => m.Unavailable == null && m.NeedsDownload).Select(m => m.Label).ToList();
         var unsupported = methods.Where(m => m.Unavailable != null).Select(m => m.Label).ToList();
         Notes = string.Join("  ", new[]

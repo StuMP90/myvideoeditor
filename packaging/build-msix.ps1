@@ -3,7 +3,7 @@
   Builds an x64 MSIX package of MyVideoEditor, with FFmpeg included (Windows only; needs the
   Windows 10/11 SDK for makeappx.exe).
 
-  The AI upscaling models (ArtCNN, Real-ESRGAN, Real-CUGAN) run in the app through ONNX Runtime
+  The AI upscaling models (ArtCNN, SmallSR, Real-ESRGAN, Real-CUGAN) run in the app through ONNX Runtime
   (DirectML), so they're part of the app itself: the package has no separate AI programs, and the
   Windows app never downloads any (Store policy limits apps that download and run code).
 

@@ -35,8 +35,12 @@ public sealed record UpscaleMethod(
     OnnxModel? OnnxModel = null,
     bool IsAi = false,
     UpscalerComponent? VulkanAlternative = null,
-    IReadOnlyList<OnnxModel>? OnnxScales = null)
+    IReadOnlyList<OnnxModel>? OnnxScales = null,
+    bool Mixable = false)
 {
+    /// <summary>Whether the strength setting applies: the output can be mixed with a Lanczos enlargement.</summary>
+    public bool HasStrength => IsAi || Mixable;
+
     /// <summary>
     /// The ONNX model for enlarging by <paramref name="needed"/>: with a model per scale, the smallest
     /// that reaches it (the rest is Lanczos), otherwise the method's one model.
@@ -84,13 +88,18 @@ public static class UpscaleMethods
         new(ScaleAlgorithm.GpuLines, "Cleaner lines (GPU)",
             "Anime4K GPU shaders: restores and sharpens lines at close to real-time speed. Best for animation, cartoons and screen recordings.",
             UpscaleKind.GpuShader, UpscalerComponents.Anime4K, ContentType.Animation, 4),
+        // One pass (OnnxScales), then Lanczos: two 2x passes look too smooth.
+        new(ScaleAlgorithm.CleanUp, "Clean-up (fast)",
+            "SmallSR, a tiny neural network trained to remove compression blocks and blur while doubling the size; a standard resize does the rest. " +
+            "Faster than Sharper detail on the CPU; best for low-resolution or heavily compressed footage. Lower the strength for a softer, more natural mix.",
+            UpscaleKind.Onnx, null, null, 4, OnnxModel.SmallSr, OnnxScales: [OnnxModel.SmallSr], Mixable: true),
         new(ScaleAlgorithm.AiAnimation, "AI: animation and screen (Real-ESRGAN)",
             "Real-ESRGAN's video model: clean, sharp lines and flat colours. Best for animation, cartoons and screen recordings. " +
             "Runs on the CPU (about a second per frame), or a graphics card on Windows.",
             UpscaleKind.Onnx, null, ContentType.Animation, 6, OnnxModel.RealEsrganAnimation, IsAi: true, VulkanAlternative: UpscalerComponents.RealEsrgan),
         new(ScaleAlgorithm.AiGeneral, "AI: realistic detail (Real-ESRGAN general)",
             "Real-ESRGAN's compact general model: adds crisp, realistic detail to camera footage. Invents some texture; " +
-            "lower the AI strength to keep more of the real picture. Runs on the CPU (a few seconds per frame), or a graphics card on Windows.",
+            "lower the strength to keep more of the real picture. Runs on the CPU (a few seconds per frame), or a graphics card on Windows.",
             UpscaleKind.Onnx, null, ContentType.Camera, 6, OnnxModel.RealEsrganGeneral, IsAi: true),
         new(ScaleAlgorithm.AiAnime, "AI: anime, strongest (Real-CUGAN)",
             "Real-CUGAN: the strongest clean-up for anime. Smooths camera footage into a painted look, so use it for animation only. " +
