@@ -198,7 +198,16 @@ public static class TestMedia
             {
                 var temp = Path.Combine(Directory, "tmp-" + Guid.NewGuid().ToString("N")[..6] + Path.GetExtension(name));
                 await new FfmpegRunner().RunAsync(args(temp));
-                File.Move(temp, path, overwrite: true);
+                try
+                {
+                    File.Move(temp, path, overwrite: true);
+                }
+                catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && File.Exists(path))
+                {
+                    // Another test process (Core and App tests run at once) made it first and may have it open,
+                    // which Windows won't let us replace: use theirs.
+                    File.Delete(temp);
+                }
             }
             return path;
         }
