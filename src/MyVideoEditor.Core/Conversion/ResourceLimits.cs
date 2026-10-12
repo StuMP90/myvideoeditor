@@ -90,8 +90,24 @@ public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = f
     public IDisposable LowerAppOnWindows() =>
         LowPriority && OperatingSystem.IsWindows() ? WindowsPriority.Lower() : Nothing.Instance;
 
+    /// <summary>
+    /// Keeps the whole app, and every process it starts, on <see cref="Threads"/> of the processors it may
+    /// use while this lasts. The thread caps above apply to each part of a job separately (decoder, model,
+    /// encoder), so together they can still fill the computer when every part is busy, as with a fast
+    /// model; this caps the total. Child processes inherit it from their first instruction (Linux and
+    /// Windows). Dispose to restore it. Nothing when uncapped.
+    /// </summary>
+    public IDisposable PinApp() =>
+        IsCapped && (OperatingSystem.IsLinux() || OperatingSystem.IsWindows()) ? CpuPin.Enter(Threads) : Nothing.Instance;
+
     [DllImport("libc", SetLastError = true)]
     private static extern int setpriority(int which, int who, int prio);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int sched_getaffinity(int pid, nint size, ulong[] mask);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int sched_setaffinity(int pid, nint size, ulong[] mask);
 
     [DllImport("libc")]
     private static extern long syscall(long number);
@@ -100,6 +116,109 @@ public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = f
     {
         public static readonly Nothing Instance = new();
         public void Dispose() { }
+    }
+
+    /// <summary>
+    /// The app's processor affinity while any capped job runs (counted, so overlapping jobs work: the
+    /// largest cap applies). Uses the first processors of those the app was allowed when the first job
+    /// started, so it never escapes a restriction it was started with (taskset, a container).
+    /// </summary>
+    private sealed class CpuPin : IDisposable
+    {
+        private const int Words = 16; // 1024 processors, glibc's cpu_set_t
+        private static readonly object Lock = new();
+        private static readonly List<CpuPin> Active = [];
+        private static ulong[]? _original;
+        private readonly int _threads;
+        private bool _disposed;
+
+        private CpuPin(int threads) => _threads = threads;
+
+        public static CpuPin Enter(int threads)
+        {
+            var pin = new CpuPin(threads);
+            lock (Lock)
+            {
+                try
+                {
+                    _original ??= Current();
+                    Active.Add(pin);
+                    Set(FirstOf(_original, Active.Max(p => p._threads)));
+                }
+                catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+                {
+                    Log.Warn("limits", "Couldn't keep the job to its share of the processors.", ex);
+                }
+            }
+            return pin;
+        }
+
+        public void Dispose()
+        {
+            lock (Lock)
+            {
+                if (_disposed || !Active.Remove(this))
+                    return;
+                _disposed = true;
+                if (_original == null)
+                    return;
+                try
+                {
+                    Set(Active.Count == 0 ? _original : FirstOf(_original, Active.Max(p => p._threads)));
+                }
+                catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+                {
+                    Log.Warn("limits", "Couldn't restore the processors the app may use.", ex);
+                }
+                if (Active.Count == 0)
+                    _original = null;
+            }
+        }
+
+        /// <summary>The first <paramref name="count"/> processors set in <paramref name="allowed"/>.</summary>
+        internal static ulong[] FirstOf(ulong[] allowed, int count)
+        {
+            var mask = new ulong[allowed.Length];
+            for (var bit = 0; bit < allowed.Length * 64 && count > 0; bit++)
+            {
+                if ((allowed[bit / 64] & (1UL << (bit % 64))) != 0)
+                {
+                    mask[bit / 64] |= 1UL << (bit % 64);
+                    count--;
+                }
+            }
+            return mask;
+        }
+
+        private static ulong[] Current()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                using var me = Process.GetCurrentProcess();
+                return [(ulong)me.ProcessorAffinity];
+            }
+            var mask = new ulong[Words];
+            if (sched_getaffinity(Environment.ProcessId, Words * 8, mask) != 0)
+                throw new InvalidOperationException($"sched_getaffinity failed ({Marshal.GetLastPInvokeError()}).");
+            return mask;
+        }
+
+        private static void Set(ulong[] mask)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                // The whole process, its existing and future threads; child processes inherit it.
+                using var me = Process.GetCurrentProcess();
+                me.ProcessorAffinity = (nint)mask[0];
+                return;
+            }
+            // Linux: affinity is per thread, and new threads and child processes inherit their creator's.
+            // A second pass catches threads started during the first.
+            for (var pass = 0; pass < 2; pass++)
+                foreach (var dir in Directory.EnumerateDirectories("/proc/self/task"))
+                    if (int.TryParse(Path.GetFileName(dir), out var tid))
+                        sched_setaffinity(tid, Words * 8, mask); // fails only for threads that have just ended
+        }
     }
 
     /// <summary>Below-normal priority for the app while any low-priority job runs (counted, so overlapping jobs work).</summary>

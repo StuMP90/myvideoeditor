@@ -99,6 +99,9 @@ public static class OnnxEngine
             IntraOpNumThreads = limits.Threads,
             InterOpNumThreads = 1,
         };
+        // Idle workers sleep rather than spin: as fast (measured), and it stops a fast model keeping every
+        // thread busy while it waits for ffmpeg.
+        cpu.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
         Log.Info("onnx", $"{model.Id}: running on the CPU ({limits.Threads} threads{(limits.LowPriority ? ", low priority" : "")}).");
         return (new InferenceSession(model.CpuPath, cpu), "CPU");
     }

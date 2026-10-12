@@ -62,6 +62,66 @@ public class ResourceLimitsTests
         Assert.Equal(0, Nice("/proc/thread-self/stat"));
     }
 
+    /// <summary>The processors a thread or process may run on (Linux), from /proc.</summary>
+    private static SortedSet<int> Cpus(string statusPath)
+    {
+        var list = File.ReadLines(statusPath).First(l => l.StartsWith("Cpus_allowed_list:"))["Cpus_allowed_list:".Length..].Trim();
+        var cpus = new SortedSet<int>();
+        foreach (var range in list.Split(','))
+        {
+            var ends = range.Split('-').Select(int.Parse).ToArray();
+            for (var cpu = ends[0]; cpu <= ends[^1]; cpu++)
+                cpus.Add(cpu);
+        }
+        return cpus;
+    }
+
+    [Fact]
+    public void Cap_keeps_the_app_and_its_processes_on_that_many_processors()
+    {
+        if (!OperatingSystem.IsLinux() || Environment.ProcessorCount < 4)
+            return;
+        var before = Cpus("/proc/self/status");
+        // A thread that already exists, as ONNX Runtime's and ffmpeg readers' are by the time a job starts.
+        using var started = new ManualResetEventSlim();
+        using var check = new ManualResetEventSlim();
+        SortedSet<int>? existing = null;
+        var worker = new Thread(() => { started.Set(); check.Wait(); existing = Cpus("/proc/thread-self/status"); });
+        worker.Start();
+        started.Wait();
+
+        using (new ResourceLimits(MaxThreads: 3).PinApp())
+        {
+            var pinned = Cpus("/proc/self/status");
+            Assert.Equal(before.Take(3), pinned); // the first of those it was allowed, never others
+            Assert.Equal(pinned, Cpus("/proc/thread-self/status"));
+            check.Set();
+            worker.Join();
+            Assert.Equal(pinned, existing);
+            SortedSet<int>? fresh = null;
+            var later = new Thread(() => fresh = Cpus("/proc/thread-self/status"));
+            later.Start();
+            later.Join();
+            Assert.Equal(pinned, fresh);
+            using (var sleeper = Process.Start(new ProcessStartInfo("sleep", "5") { UseShellExecute = false })!)
+            {
+                Assert.Equal(pinned, Cpus($"/proc/{sleeper.Id}/status"));
+                sleeper.Kill();
+            }
+
+            // Overlapping jobs: the larger cap applies while both run, then the remaining one's.
+            using (new ResourceLimits(MaxThreads: 4).PinApp())
+                Assert.Equal(before.Take(4), Cpus("/proc/self/status"));
+            Assert.Equal(pinned, Cpus("/proc/self/status"));
+        }
+        Assert.Equal(before, Cpus("/proc/self/status"));
+        Assert.Equal(before, Cpus("/proc/thread-self/status"));
+
+        // No cap: nothing changes.
+        using (ResourceLimits.Unlimited.PinApp())
+            Assert.Equal(before, Cpus("/proc/self/status"));
+    }
+
     [Fact]
     public async Task Thread_cap_limits_onnx_cpu_use()
     {

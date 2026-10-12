@@ -97,6 +97,7 @@ public sealed class Converter
         var length = OutputLength(info, settings);
         Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}, {settings.Limits.Threads} threads{(settings.Limits.LowPriority ? ", low priority" : "")}).");
         using var priority = settings.Limits.LowerAppOnWindows();
+        using var cpus = settings.Limits.PinApp();
         try
         {
             var kind = EngineOverride ?? EngineFor(settings);
@@ -306,6 +307,7 @@ public sealed class Converter
             layout.Add(target.PostFilter);
         layout.Add(StillToRgb(color));
         using var priority = settings.Limits.LowerAppOnWindows();
+        using var cpus = settings.Limits.PinApp();
         if (beforePng != null)
         {
             var before = new List<string> { "-ss", F(at), "-i", info.Path, "-frames:v", "1", "-vf", string.Join(',', layout), "-update", "1", "-y", beforePng };
