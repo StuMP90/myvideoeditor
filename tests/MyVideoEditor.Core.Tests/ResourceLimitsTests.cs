@@ -90,10 +90,10 @@ public class ResourceLimitsTests
         worker.Start();
         started.Wait();
 
-        using (new ResourceLimits(MaxThreads: 3).PinApp())
+        using (new ResourceLimits(MaxThreads: 2).PinApp())
         {
             var pinned = Cpus("/proc/self/status");
-            Assert.Equal(before.Take(3), pinned); // the first of those it was allowed, never others
+            Assert.Equal(before.Take(2), pinned); // the first of those it was allowed, never others
             Assert.Equal(pinned, Cpus("/proc/thread-self/status"));
             check.Set();
             worker.Join();
@@ -110,8 +110,12 @@ public class ResourceLimitsTests
             }
 
             // Overlapping jobs: the larger cap applies while both run, then the remaining one's.
-            using (new ResourceLimits(MaxThreads: 4).PinApp())
-                Assert.Equal(before.Take(4), Cpus("/proc/self/status"));
+            using (new ResourceLimits(MaxThreads: 3).PinApp())
+                Assert.Equal(before.Take(3), Cpus("/proc/self/status"));
+            Assert.Equal(pinned, Cpus("/proc/self/status"));
+            // An uncapped job isn't held to another job's cap.
+            using (ResourceLimits.Unlimited.PinApp())
+                Assert.Equal(before, Cpus("/proc/self/status"));
             Assert.Equal(pinned, Cpus("/proc/self/status"));
         }
         Assert.Equal(before, Cpus("/proc/self/status"));

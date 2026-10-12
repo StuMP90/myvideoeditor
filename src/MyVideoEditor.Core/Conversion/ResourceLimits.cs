@@ -95,10 +95,11 @@ public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = f
     /// use while this lasts. The thread caps above apply to each part of a job separately (decoder, model,
     /// encoder), so together they can still fill the computer when every part is busy, as with a fast
     /// model; this caps the total. Child processes inherit it from their first instruction (Linux and
-    /// Windows). Dispose to restore it. Nothing when uncapped.
+    /// Windows). Dispose to restore it. An uncapped job lifts other jobs' caps while it runs, as it would
+    /// otherwise be held to them.
     /// </summary>
     public IDisposable PinApp() =>
-        IsCapped && (OperatingSystem.IsLinux() || OperatingSystem.IsWindows()) ? CpuPin.Enter(Threads) : Nothing.Instance;
+        OperatingSystem.IsLinux() || OperatingSystem.IsWindows() ? CpuPin.Enter(IsCapped ? Threads : CpuPin.All) : Nothing.Instance;
 
     [DllImport("libc", SetLastError = true)]
     private static extern int setpriority(int which, int who, int prio);
@@ -134,21 +135,17 @@ public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = f
 
         private CpuPin(int threads) => _threads = threads;
 
+        /// <summary>No cap: all the processors the app was allowed.</summary>
+        public const int All = int.MaxValue;
+        private static int _applied = All;
+
         public static CpuPin Enter(int threads)
         {
             var pin = new CpuPin(threads);
             lock (Lock)
             {
-                try
-                {
-                    _original ??= Current();
-                    Active.Add(pin);
-                    Set(FirstOf(_original, Active.Max(p => p._threads)));
-                }
-                catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
-                {
-                    Log.Warn("limits", "Couldn't keep the job to its share of the processors.", ex);
-                }
+                Active.Add(pin);
+                Apply();
             }
             return pin;
         }
@@ -157,21 +154,31 @@ public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = f
         {
             lock (Lock)
             {
-                if (_disposed || !Active.Remove(this))
+                if (_disposed)
                     return;
                 _disposed = true;
-                if (_original == null)
-                    return;
-                try
-                {
-                    Set(Active.Count == 0 ? _original : FirstOf(_original, Active.Max(p => p._threads)));
-                }
-                catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
-                {
-                    Log.Warn("limits", "Couldn't restore the processors the app may use.", ex);
-                }
-                if (Active.Count == 0)
-                    _original = null;
+                Active.Remove(this);
+                Apply();
+            }
+        }
+
+        /// <summary>Applies the largest cap among running jobs (all processors if any is uncapped or none run).</summary>
+        private static void Apply()
+        {
+            var wanted = Active.Count == 0 ? All : Active.Max(p => p._threads);
+            if (wanted == _applied)
+                return;
+            try
+            {
+                _original ??= Current();
+                Set(wanted == All ? _original : FirstOf(_original, wanted));
+                _applied = wanted;
+                if (wanted == All)
+                    _original = null; // read afresh next time, in case it was changed from outside meanwhile
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+            {
+                Log.Warn("limits", "Couldn't set the processors the app may use.", ex);
             }
         }
 
