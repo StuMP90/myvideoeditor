@@ -1,0 +1,123 @@
+<p>MyVideoEditor is a free video editor, converter, AI upscaler and screen recorder for Windows and Linux. Everything runs on your own computer: no account, no subscription, no watermark and no uploads. It's open source under the MIT licence.</p>
+
+<p><strong>Download:</strong> <a href="https://apps.microsoft.com/detail/9N1D236MKF9F">Windows, from the Microsoft Store</a> · <a href="https://github.com/StuMP90/myvideoeditor/releases/latest">Linux, from GitHub</a></p>
+
+<p><img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/01-editing.png" alt="MyVideoEditor's multi-track timeline with the preview and clip settings" width="1920" height="1080"></p>
+
+<h2>What it does</h2>
+
+<h3>Edit</h3>
+<ul>
+  <li>Multi-track timeline for video, sound and pictures, with picture-in-picture and overlays</li>
+  <li>Move, trim, split, ripple-delete and undo anything</li>
+  <li>Transitions: dissolves, wipes, pushes, covers, circle, clock, zoom, pixelate and blur</li>
+  <li>Titles, lower thirds, captions and end cards, with animations, credits rolls, an opening crawl and a news ticker</li>
+  <li>Colour correction, stabilisation, green screen, noise reduction and sound effects</li>
+  <li>Speed from 0.1× to 16× with the pitch kept; autosave with crash recovery</li>
+</ul>
+
+<h3>Export</h3>
+<ul>
+  <li>MP4 (H.264, H.265, AV1), WebM, MKV, MOV (ProRes) and animated GIF</li>
+  <li>Audio only: MP3, M4A, WAV, FLAC and Opus</li>
+  <li>Any size, from vertical Shorts and Reels to 4K</li>
+  <li>Chapters, and DVD-Video (NTSC or PAL) ready to burn</li>
+  <li>The preview uses the same engine as the export, so what you see is what you get</li>
+</ul>
+
+<h3>Convert and upscale</h3>
+<ul>
+  <li>Batch conversion: change format, resize, trim, rotate, deinterlace or change the frame rate</li>
+  <li>Rewrap into a new container without re-encoding</li>
+  <li>Upscale with built-in AI models (Real-ESRGAN, Real-CUGAN, ArtCNN and SmallSR), on the graphics card or the processor</li>
+  <li>Compare every method on a frame of your own video before a long job</li>
+  <li>Your originals are never changed</li>
+</ul>
+
+<h3>Record and annotate</h3>
+<ul>
+  <li>Record a window, a screen or a region, with the microphone and computer sound</li>
+  <li>Take screenshots of the same targets</li>
+  <li>Add arrows, boxes, callouts, numbered steps and spotlights</li>
+  <li>Blur or pixelate passwords and personal details</li>
+  <li>Export a small MP4 or GIF for a bug report, or a PNG</li>
+</ul>
+
+<h2>Upscaling for every kind of PC</h2>
+
+<p>Old or low-resolution video can be made larger with methods that range from fast classic filters to AI models. All of them are free and run locally. <strong>Test speed on this PC</strong> times each method on a few frames of your own video and recommends the best one that finishes in reasonable time. <strong>Compare all methods</strong> shows one frame through every method side by side, with shared zoom and pan. A strength control mixes the AI result with a faithful enlargement, so faces and textures stay natural.</p>
+
+<table>
+  <thead>
+    <tr><th>Method</th><th>Best for</th><th>Speed (360p→720p, Intel laptop)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Lanczos, bicubic, spline</td><td>Anything</td><td>~30 ms per frame</td></tr>
+    <tr><td>Sharper detail (ArtCNN)</td><td>Anything</td><td>~0.1–0.2 s per frame</td></tr>
+    <tr><td>Clean-up (SmallSR)</td><td>Compressed or soft video</td><td>~0.03–0.05 s per frame</td></tr>
+    <tr><td>Cleaner lines (Anime4K)</td><td>Animation, screen recordings</td><td>~0.1 s per frame</td></tr>
+    <tr><td>AI: animation and screen (Real-ESRGAN)</td><td>Animation, screen recordings</td><td>~1 s per frame</td></tr>
+    <tr><td>AI: realistic detail (Real-ESRGAN)</td><td>Camera footage</td><td>~2 s per frame</td></tr>
+    <tr><td>AI: anime, strongest (Real-CUGAN)</td><td>Anime</td><td>~1.5 s per frame</td></tr>
+    <tr><td>AI: photo detail (Real-ESRGAN x4plus)</td><td>Camera footage</td><td>~16 s per frame</td></tr>
+  </tbody>
+</table>
+
+<p>On Windows the AI models can use any DirectX 12 graphics card. A thread limit and a low-priority setting keep laptops cool and responsive during long jobs.</p>
+
+<h2>Screenshots</h2>
+
+<figure>
+  <img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/02-transitions.png" alt="Transitions between clips on the timeline" width="1920" height="1080" loading="lazy">
+  <figcaption>Transitions between clips</figcaption>
+</figure>
+
+<figure>
+  <img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/03-titles-crawl.png" alt="A scrolling opening crawl title" width="1920" height="1080" loading="lazy">
+  <figcaption>Scrolling titles, including an opening crawl</figcaption>
+</figure>
+
+<figure>
+  <img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/04-bug-report-annotations.png" alt="A screen recording annotated with arrows, boxes and numbered steps" width="1920" height="1080" loading="lazy">
+  <figcaption>Annotating a recording for a bug report</figcaption>
+</figure>
+
+<figure>
+  <img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/05-convert-upscale.png" alt="The convert queue with upscaling settings" width="1920" height="1080" loading="lazy">
+  <figcaption>Batch conversion and upscaling</figcaption>
+</figure>
+
+<figure>
+  <img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/06-compare-all-methods.png" alt="One frame shown through every upscaling method side by side" width="1920" height="1080" loading="lazy">
+  <figcaption>Compare all upscaling methods</figcaption>
+</figure>
+
+<figure>
+  <img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/07-capture.png" alt="The capture tab for recording windows, screens and regions" width="1920" height="1080" loading="lazy">
+  <figcaption>Screen and window recording</figcaption>
+</figure>
+
+<figure>
+  <img src="https://raw.githubusercontent.com/StuMP90/myvideoeditor/main/packaging/store/screenshots/08-export-dvd.png" alt="The export dialog set up for DVD-Video" width="1920" height="1080" loading="lazy">
+  <figcaption>Exporting, including DVD-Video</figcaption>
+</figure>
+
+<h2>Private by design</h2>
+
+<p>MyVideoEditor collects nothing and has no account. Your videos never leave your computer, and the AI models run locally. The app only goes online to download an optional upscaling component, and only when you ask for one. Recording happens only when you start it. Read the <a href="https://github.com/StuMP90/myvideoeditor/blob/main/PRIVACY.md">privacy policy</a>.</p>
+
+<h2>Download and install</h2>
+
+<h3>Windows</h3>
+<p>Install MyVideoEditor from the <a href="https://apps.microsoft.com/detail/9N1D236MKF9F">Microsoft Store</a>. It installs and updates automatically. It needs Windows 10 version 1809 or later, x64.</p>
+
+<h3>Linux</h3>
+<p>Download <code>myvideoeditor-&lt;version&gt;-linux-x64.tar.gz</code> from the <a href="https://github.com/StuMP90/myvideoeditor/releases/latest">latest release on GitHub</a>, extract it and run <code>./install.sh</code>. It installs for your user under <code>~/.local</code> and adds MyVideoEditor to your applications menu. It needs a 64-bit (x64) system. Screen recording uses X11, so in a Wayland session only XWayland apps can be captured.</p>
+
+<p>FFmpeg is included on both platforms, so there's nothing else to install.</p>
+
+<h2>Open source</h2>
+
+<p>MyVideoEditor is written in C# on .NET 10 with <a href="https://avaloniaui.net/">Avalonia</a>, and uses <a href="https://ffmpeg.org">FFmpeg</a> for decoding and encoding. The source code, issue tracker and releases are on <a href="https://github.com/StuMP90/myvideoeditor">GitHub</a>. It's released under the MIT licence; bundled components keep their own licences, listed in the app under <strong>Help → Licences</strong>.</p>
+
+<p>Found a bug or have an idea? <a href="https://github.com/StuMP90/myvideoeditor/issues">Open an issue on GitHub</a>.</p>

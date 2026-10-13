@@ -8,10 +8,11 @@ packaged as MSIX for the Microsoft Store and as a self-contained Linux tarball.
 
 ## Get MyVideoEditor
 
-- **Windows:** the MSIX from the [latest release](https://github.com/StuMP90/myvideoeditor/releases/latest)
-  (Microsoft Store listing to follow).
-- **Linux (x64):** download `myvideoeditor-<version>-linux-x64.tar.gz` from the latest release,
-  extract it and run `./install.sh`. That installs it for your user under `~/.local` and adds
+- **Windows:** [get MyVideoEditor from the Microsoft Store](https://apps.microsoft.com/detail/9N1D236MKF9F).
+  It installs and updates automatically, with no certificate setup.
+- **Linux (x64):** download `myvideoeditor-<version>-linux-x64.tar.gz` from the
+  [latest release](https://github.com/StuMP90/myvideoeditor/releases/latest), extract it and run
+  `./install.sh`. That installs it for your user under `~/.local` and adds
   MyVideoEditor to your applications menu.
 
 Both include FFmpeg, so there's nothing else to install.

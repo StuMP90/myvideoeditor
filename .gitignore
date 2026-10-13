@@ -9,3 +9,6 @@ TestResults/
 *.msixupload
 *.appx
 packaging/msix/layout/
+
+# Claude Code hand-over notes
+.claude/handover*.md
