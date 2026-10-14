@@ -46,7 +46,7 @@ public sealed class OnnxUpscaleJob
         var luma = model.Channels == OnnxChannels.Luma;
         var pixelFormat = luma ? "yuv444p" : "rgb24";
         var limits = settings.Limits;
-        using var decoder = UpscaleEncoder.Launch(_locator, DecoderArguments(info, settings, rate, color, pixelFormat), redirectInput: false, limits);
+        using var decoder = UpscaleEncoder.Launch(_locator, DecoderArguments(info, settings, rate, color, pixelFormat, srcW, srcH), redirectInput: false, limits);
         using var encoder = UpscaleEncoder.Launch(_locator, UpscaleEncoder.Arguments(_locator, info, settings, color, target, rate,
             ["-f", "rawvideo", "-pix_fmt", pixelFormat, "-s", $"{outW}x{outH}", "-framerate", rate, "-i", "pipe:0"], framesAreRgb: !luma, output), redirectInput: true, limits);
 
@@ -162,7 +162,7 @@ public sealed class OnnxUpscaleJob
         return done.Task;
     }
 
-    private static List<string> DecoderArguments(MediaInfo info, ConversionSettings s, string rate, ColorSpec color, string pixelFormat)
+    private static List<string> DecoderArguments(MediaInfo info, ConversionSettings s, string rate, ColorSpec color, string pixelFormat, int width, int height)
     {
         var args = new List<string> { "-hide_banner", "-loglevel", "error" };
         if (s.TrimStart is > 0)
@@ -177,10 +177,12 @@ public sealed class OnnxUpscaleJob
             filters.Add("yadif");
         filters.Add($"fps={rate}");
         filters.AddRange(Converter.RotationFilters(s.Rotate));
-        // YUV stays as the source's values (no conversion); RGB uses the source's own matrix.
+        // An explicit size makes non-square pixels (anamorphic DV/DVD) square, matching the frame size the
+        // job reads; the stored width would otherwise misalign every row. YUV stays as the source's values
+        // (no conversion); RGB uses the source's own matrix.
         filters.Add(pixelFormat == "rgb24"
-            ? $"scale=in_color_matrix={color.SwsMatrix}:in_range={color.Range}:flags=accurate_rnd+full_chroma_int,format=rgb24"
-            : "scale=flags=accurate_rnd+full_chroma_int,format=yuv444p");
+            ? $"scale={width}:{height}:in_color_matrix={color.SwsMatrix}:in_range={color.Range}:flags=lanczos+accurate_rnd+full_chroma_int,format=rgb24"
+            : $"scale={width}:{height}:flags=lanczos+accurate_rnd+full_chroma_int,format=yuv444p");
         args.AddRange(["-vf", string.Join(',', filters), "-f", "rawvideo", "pipe:1"]);
         return args;
     }

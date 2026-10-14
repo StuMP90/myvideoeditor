@@ -64,7 +64,7 @@ public sealed class AiUpscaleJob
         var batchFrames = BatchFramesOverride ?? BatchSize(work, srcW, srcH, srcW * modelScale, srcH * modelScale);
         Log.Info("upscale", $"{method.Label}: {info.Path} {srcW}x{srcH} -> {target.Width}x{target.Height} (model x{modelScale}), {totalFrames} frames at {rate}, batches of {batchFrames}, GPU {gpu?.ToString() ?? "(override)"}.");
 
-        using var decoder = StartDecoder(info, settings, rate, color);
+        using var decoder = StartDecoder(info, settings, rate, color, srcW, srcH);
         using var encoder = StartEncoder(info, settings, output, rate, color, target);
         var stopwatch = Stopwatch.StartNew();
         var done = 0;
@@ -149,7 +149,7 @@ public sealed class AiUpscaleJob
         return (int)Math.Clamp(budget / perFrame, 24, 600);
     }
 
-    private Process StartDecoder(MediaInfo info, ConversionSettings s, string rate, ColorSpec color)
+    private Process StartDecoder(MediaInfo info, ConversionSettings s, string rate, ColorSpec color, int width, int height)
     {
         var args = new List<string> { "-hide_banner", "-loglevel", "error" };
         if (s.TrimStart is > 0)
@@ -165,7 +165,8 @@ public sealed class AiUpscaleJob
             filters.Add("yadif");
         filters.Add($"fps={rate}");
         filters.AddRange(Converter.RotationFilters(s.Rotate));
-        filters.Add($"scale=in_color_matrix={color.SwsMatrix}:in_range={color.Range}:flags=accurate_rnd+full_chroma_int,format=rgb24");
+        // Square pixels for the model (anamorphic sources are stored narrower than they display).
+        filters.Add($"scale={width}:{height}:in_color_matrix={color.SwsMatrix}:in_range={color.Range}:flags=lanczos+accurate_rnd+full_chroma_int,format=rgb24");
         args.AddRange(["-vf", string.Join(',', filters), "-f", "image2pipe", "-c:v", "png", "-compression_level", "1", "pipe:1"]);
         return UpscaleEncoder.Launch(_locator, args, redirectInput: false, s.Limits);
     }
