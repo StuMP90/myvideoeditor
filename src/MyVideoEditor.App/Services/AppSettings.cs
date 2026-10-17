@@ -32,6 +32,8 @@ public sealed class AppSettings
     public bool ConvertTempLimit { get; set; }
     public int ConvertMaxTemp { get; set; } = 80;
     public bool ConvertRepairFilm { get; set; }
+    /// <summary>A <see cref="Core.Conversion.Look"/> name: "None", "BlackAndWhite", "Sepia" or "OldFilm".</summary>
+    public string ConvertLook { get; set; } = "None";
     public string? CaptureFolder { get; set; }
     public double CaptureFrameRate { get; set; } = 30;
     public bool CaptureCursor { get; set; } = true;

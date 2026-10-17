@@ -795,6 +795,15 @@ public partial class UiTests
         Assert.True(convert.BuildSettings().Settings!.RepairFilm);
         convert.RepairFilm = false;
         Assert.False(convert.BuildSettings().Settings!.RepairFilm);
+        Assert.Equal("-1280x720-CleanupHD-50%-repaired-oldfilm-bw", ConvertViewModel.SuffixFor(hd with { Look = Core.Conversion.Look.OldFilm }, true));
+        Assert.Equal("-sepia", ConvertViewModel.SuffixFor(hd with { RepairFilm = false, Look = Core.Conversion.Look.Sepia }, false));
+        Assert.Equal(["None", "Black and white", "Sepia", "Old film (black and white)", "Old film (sepia)"], convert.LookOptions);
+        Assert.Equal(Core.Conversion.Look.None, convert.BuildSettings().Settings!.Look);
+        convert.LookIndex = 2;
+        Assert.Equal(Core.Conversion.Look.Sepia, convert.BuildSettings().Settings!.Look);
+        Pump();
+        Assert.Contains(window.GetVisualDescendants().OfType<ComboBox>(), c => c.SelectedItem as string == "Sepia");
+        convert.LookIndex = 0;
 
         // The temperature limit: offered only where it can work, off by default.
         Pump();

@@ -772,4 +772,60 @@ public class UpscalingTests
         await new Converter().RenderPreviewAsync(source, settings, 0.2, before, after);
         Assert.True(File.Exists(after));
     }
+
+    [Fact]
+    public void Looks_come_last_on_every_path_and_need_a_reencoded_picture()
+    {
+        var info = new MediaInfo { Path = "in.mp4", Width = 640, Height = 360, HasVideo = true };
+        var s = new ConversionSettings { Format = OutputFormats.Mp4H264, Height = 1080, Look = Look.OldFilmSepia };
+        var cpu = string.Join(',', Converter.VideoFilters(info, s));
+        Assert.Matches(@"scale=.*colorchannelmixer=.*gblur=sigma=0\.7,eq=.*random\(0\).*,noise=.*,vignette=.*,setsar=1$", cpu);
+        Assert.DoesNotContain("gblur", string.Join(',', Converter.VideoFilters(info, s with { Height = null }))); // too small to soften
+        Assert.EndsWith("hue=s=0,setsar=1", string.Join(',', Converter.VideoFilters(info, s with { Look = Look.BlackAndWhite })));
+        Assert.Matches(@"hue=s=0,gblur=.*vignette=a=PI/4.5,setsar=1$", string.Join(',', Converter.VideoFilters(info, s with { Look = Look.OldFilm })));
+        Assert.DoesNotContain("hue", string.Join(',', Converter.VideoFilters(info, s with { Look = Look.None })));
+
+        // Frames piped from a model: after the model, padding and blending, before the final conversion.
+        var target = new ScaledSize(1920, 1080, null);
+        var piped = UpscaleEncoder.Arguments(TestMedia.Locator, info, s with { Algorithm = ScaleAlgorithm.CleanUp, AiStrength = 0.5 }, ColorSpec.For(info),
+            target, "25", ["-i", "-"], false, "out.mp4");
+        var graph = piped[piped.IndexOf("-filter_complex") + 1];
+        Assert.Matches(@"\[mixed\]colorchannelmixer=.*vignette=a=PI/4.5,setsar=1\[v\]$", graph);
+
+        Assert.Equal(Look.OldFilmSepia, Converter.Effective(info, s).Look);
+        Assert.Equal(Look.OldFilmSepia, Converter.Effective(info, s with { Format = OutputFormats.Gif }).Look);
+        Assert.Equal(Look.None, Converter.Effective(info, s with { Remux = true }).Look);
+        Assert.Equal(Look.None, Converter.Effective(info with { HasVideo = false }, s).Look);
+    }
+
+    [Theory]
+    [InlineData(Look.BlackAndWhite, false)]
+    [InlineData(Look.Sepia, false)]
+    [InlineData(Look.OldFilm, false)]
+    [InlineData(Look.OldFilmSepia, false)]
+    [InlineData(Look.OldFilmSepia, true)] // after film repair, through the piped frames
+    public async Task Looks_convert_and_preview(Look look, bool repair)
+    {
+        var source = await TestMedia.PatternAsync(0.4, 64, 48);
+        var output = Path.Combine(TestMedia.NewOutputDirectory(), "look.mp4");
+        var settings = new ConversionSettings
+        {
+            Format = OutputFormats.Mp4H264, Look = look, RepairFilm = repair, Width = 128, Height = 96,
+            Limits = new ResourceLimits(MaxThreads: 2, LowPriority: true),
+        };
+        await new Converter().ConvertAsync(source, output, settings);
+        var info = await MediaProbe.Default.ProbeAsync(output);
+        Assert.Equal((128, 96), (info.Width, info.Height));
+        Assert.Equal(TestMedia.FrameCount(source), TestMedia.FrameCount(output));
+
+        var dir = TestMedia.NewOutputDirectory();
+        var after = Path.Combine(dir, "after.png");
+        await new Converter().RenderPreviewAsync(source, settings, 0.2, null, after);
+        var (_, _, rgb) = TestMedia.Frame(after, 0);
+        var mean = Enumerable.Range(0, 3).Select(c => rgb.Where((_, i) => i % 3 == c).Average(v => (double)v)).ToArray();
+        if (look is Look.BlackAndWhite or Look.OldFilm)
+            Assert.True(Math.Abs(mean[0] - mean[1]) < 2 && Math.Abs(mean[1] - mean[2]) < 2, string.Join(", ", mean));
+        else
+            Assert.True(mean[0] > mean[1] * 1.05 && mean[1] > mean[2] * 1.1, string.Join(", ", mean)); // a warm tint
+    }
 }

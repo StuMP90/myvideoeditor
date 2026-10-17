@@ -74,6 +74,8 @@ public sealed record ConversionSettings
     /// restored from itself and its neighbours (an ONNX model, so it runs in <see cref="OnnxUpscaleJob"/>).
     /// </summary>
     public bool RepairFilm { get; init; }
+    /// <summary>Black and white, sepia or old film, applied last (after repair and resizing).</summary>
+    public Look Look { get; init; }
     /// <summary>CPU threads, priority and where AI models run.</summary>
     public ResourceLimits Limits { get; init; } = ResourceLimits.Unlimited;
 }
@@ -102,7 +104,7 @@ public sealed class Converter
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         var partial = Path.Combine(Path.GetDirectoryName(full)!, Path.GetFileNameWithoutExtension(full) + ".partial" + Path.GetExtension(full));
         var length = OutputLength(info, settings);
-        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}{(settings.RepairFilm ? ", film repair" : "")}, {settings.Limits.Threads} threads{(settings.Limits.LowPriority ? ", low priority" : "")}).");
+        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}{(settings.RepairFilm ? ", film repair" : "")}{(settings.Look != Look.None ? $", look: {Looks.Label(settings.Look).ToLowerInvariant()}" : "")}, {settings.Limits.Threads} threads{(settings.Limits.LowPriority ? ", low priority" : "")}).");
         using var priority = settings.Limits.LowerAppOnWindows();
         using var cpus = settings.Limits.PinApp();
         using var heat = settings.Limits.WatchTemperature();
@@ -177,6 +179,8 @@ public sealed class Converter
     {
         if (s.RepairFilm && (s.Remux || !s.Format.HasVideo || s.Format.IsGif || !info.HasVideo))
             s = s with { RepairFilm = false };
+        if (s.Look != Look.None && (s.Remux || !s.Format.HasVideo || !info.HasVideo))
+            s = s with { Look = Look.None };
         var method = UpscaleMethods.Get(s.Algorithm);
         if (s.RepairFilm && method.Kind is UpscaleKind.GpuShader or UpscaleKind.AiFrames)
             return s with { Algorithm = ScaleAlgorithm.Lanczos };
@@ -274,6 +278,7 @@ public sealed class Converter
             filters.AddRange(GpuShaderFilters(info, s, method));
             if (s.FrameRate is > 0)
                 filters.Add($"fps={F(s.FrameRate.Value)}");
+            filters.AddRange(LookFilters(info, s));
             filters.Add("setsar=1");
             return filters;
         }
@@ -293,8 +298,18 @@ public sealed class Converter
         }
         if (s.FrameRate is > 0)
             filters.Add($"fps={F(s.FrameRate.Value)}");
+        filters.AddRange(LookFilters(info, s));
         filters.Add("setsar=1");
         return filters;
+    }
+
+    /// <summary>The look's filters for the output size.</summary>
+    private static IEnumerable<string> LookFilters(MediaInfo info, ConversionSettings s)
+    {
+        if (s.Look == Look.None)
+            return [];
+        var (srcW, srcH) = s.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
+        return Looks.Filters(s.Look, ScaledSize.For(Math.Max(2, srcW), Math.Max(2, srcH), s.Width, s.Height, s.ResizeMode).Height);
     }
 
     /// <summary>

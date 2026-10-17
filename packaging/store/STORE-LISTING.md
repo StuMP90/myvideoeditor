@@ -72,8 +72,8 @@ optional components. It must be live at that URL, so push PRIVACY.md to `main` b
 >
 > Convert a batch of files between formats; resize, trim, rotate and deinterlace them; change the
 > frame rate; or rewrap without re-encoding. Repair old film: a small AI model takes out dust and
-> calms grain and flicker in digitised film, and can be combined with upscaling in one go. Your
-> originals are never changed.
+> calms grain and flicker in digitised film, and can be combined with upscaling in one go. Finish
+> with a black and white, sepia or old-film look. Your originals are never changed.
 >
 > Upscale old or low-resolution video with built-in AI models: Real-ESRGAN, Real-CUGAN, ArtCNN and SmallSR.
 > They run on your graphics card (DirectX 12) or on the processor. "Test speed on this PC"
@@ -114,7 +114,7 @@ For the first submission:
 6. Colour, blur, sharpen, stabilisation, green screen and sound-cleanup effects
 7. Export MP4, WebM, MKV, MOV, GIF and audio, from vertical video to 4K
 8. Chapters and DVD-Video export (NTSC/PAL) for burning to disc
-9. Batch convert, resize, trim and rotate without touching your originals
+9. Batch convert, resize, trim and rotate without touching your originals, with black and white, sepia or old-film looks
 10. Upscale with local AI (Real-ESRGAN, Real-CUGAN, ArtCNN, SmallSR) on your graphics card or CPU
 11. Compare every upscaling method side by side before converting
 12. Repair old film: remove dust and calm grain and flicker with local AI

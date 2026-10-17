@@ -241,6 +241,22 @@ public sealed partial class ConvertViewModel : ObservableObject
         }
     }
 
+    public IReadOnlyList<string> LookOptions { get; } = Looks.All.Select(Looks.Label).ToList();
+
+    /// <summary>Black and white, sepia or old film, applied after any repair and upscaling.</summary>
+    public int LookIndex
+    {
+        get => (int)SelectedLook;
+        set
+        {
+            _settings.ConvertLook = Looks.All[Math.Clamp(value, 0, Looks.All.Count - 1)].ToString();
+            _settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    private Look SelectedLook => Enum.TryParse<Look>(_settings.ConvertLook, out var look) && Enum.IsDefined(look) ? look : Look.None;
+
     public IReadOnlyList<string> AiDeviceOptions { get; } = ["Automatic", "CPU", "Graphics card"];
 
     private static readonly string[] AiDeviceKeys = ["Auto", "Cpu", "Gpu"];
@@ -827,6 +843,7 @@ public sealed partial class ConvertViewModel : ObservableObject
             Deinterlace = Deinterlace,
             AiStrength = _settings.ConvertAiStrength,
             RepairFilm = _settings.ConvertRepairFilm,
+            Look = SelectedLook,
             Limits = Limits,
         }, null);
     }
@@ -961,6 +978,8 @@ public sealed partial class ConvertViewModel : ObservableObject
             parts.Add($"{fps:0.##} fps");
         if (s.TrimStart != null || s.TrimEnd != null)
             parts.Add("trimmed");
+        if (!s.Remux && s.Look != Look.None)
+            parts.Add(Looks.Label(s.Look).ToLowerInvariant());
         return string.Join(" · ", parts);
     }
 
@@ -1003,13 +1022,13 @@ public sealed partial class ConvertViewModel : ObservableObject
 
     /// <summary>
     /// A file-name suffix describing the settings, so conversions with different settings sit side by
-    /// side: "-1440p-ArtCNN", "-1080p-AI-general-40%", "-remux", "-converted".
+    /// side: "-1440p-ArtCNN", "-1080p-AI-general-40%", "-sepia", "-remux", "-converted".
     /// </summary>
     internal static string SuffixFor(ConversionSettings s, bool resized)
     {
         if (s.Remux)
             return "-remux";
-        var repaired = s.RepairFilm ? "-repaired" : "";
+        var repaired = (s.RepairFilm ? "-repaired" : "") + Looks.Suffix(s.Look);
         if (!resized)
             return repaired.Length > 0 ? repaired : "-converted";
         var size = s.Width != null && s.Height != null ? $"-{s.Width}x{s.Height}" : s.Height is { } h ? $"-{h}p" : $"-{s.Width}w";

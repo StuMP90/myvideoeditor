@@ -81,6 +81,7 @@ internal static class UpscaleEncoder
         var tail = new List<string>();
         if (target.PostFilter != null)
             tail.Add(target.PostFilter);
+        tail.AddRange(Looks.Filters(s.Look, target.Height));
         tail.Add(s.Format.IsStill ? Converter.StillToRgb(color) : "setsar=1");
         graph.Add($"[{last}]{string.Join(',', tail)}[v]");
 

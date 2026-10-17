@@ -180,6 +180,11 @@
               <CheckBox IsChecked="{Binding Deinterlace}" Content="Deinterlace (old TV / camcorder footage)" />
               <CheckBox IsChecked="{Binding RepairFilm}" Content="Repair old film (scratches, dust, flicker)"
                         ToolTip.Tip="A small AI model restores each frame from itself and the frames either side, before any upscaling. For scanned or digitised film; on other video it does little. Slower: about as slow as Clean-up (fast)." />
+              <Grid ColumnDefinitions="110,*">
+                <TextBlock Classes="name" Text="Look" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding LookOptions}" SelectedIndex="{Binding LookIndex}" HorizontalAlignment="Stretch"
+                          ToolTip.Tip="Black and white, sepia, or old film (black and white or sepia, with flicker, grain, softness and darker corners). Applied last, after any repair and upscaling." />
+              </Grid>
             </StackPanel>
 
             <TextBlock Text="TRIM" Classes="section" />
