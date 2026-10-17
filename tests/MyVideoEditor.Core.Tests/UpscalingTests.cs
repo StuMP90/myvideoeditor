@@ -620,4 +620,156 @@ public class UpscalingTests
         var animation = UpscaleMethods.Recommend(ContentType.Animation, est, TimeSpan.FromHours(1));
         Assert.Equal(ScaleAlgorithm.AiAnimation, animation.Algorithm);
     }
+    // ---- clean-up HD and film repair -----------------------------------------------------------
+
+    [Fact]
+    public void Clean_up_hd_is_offered_but_never_recommended()
+    {
+        var method = UpscaleMethods.Get(ScaleAlgorithm.CleanUpHd);
+        Assert.Same(OnnxModel.CleanUpHd, method.OnnxModelFor(2));
+        Assert.True(method.HasStrength);
+        Assert.False(method.IsAi);
+        Assert.True(OnnxModel.CleanUpHd.IsPresent);
+        Assert.EndsWith("CleanupHD_x2_int8.onnx", OnnxModel.CleanUpHd.CpuPath);
+        // SmallSR stays the clean-up choice: the HD model is for compressed sources, picked by hand.
+        var est = UpscaleMethods.All.ToDictionary(m => m.Algorithm, m => new UpscaleEstimate(m.Algorithm, 0.01, 0, 1000));
+        foreach (var content in Enum.GetValues<ContentType>())
+            Assert.NotEqual(ScaleAlgorithm.CleanUpHd, UpscaleMethods.Recommend(content, est, TimeSpan.FromHours(1)).Algorithm);
+        Assert.NotEqual(ScaleAlgorithm.CleanUpHd, new ConversionSettings { Format = OutputFormats.Mp4H264 }.Algorithm);
+    }
+
+    [Fact]
+    public void Film_repair_model_takes_three_frames_at_the_same_size()
+    {
+        Assert.Equal(3, OnnxModel.FilmRepair.Frames);
+        Assert.Equal(1, OnnxModel.FilmRepair.Scale);
+        Assert.Equal(OnnxChannels.Luma, OnnxModel.FilmRepair.Channels);
+        Assert.True(OnnxModel.FilmRepair.IsPresent);
+        Assert.EndsWith("FilmRepair_x1.onnx", OnnxModel.FilmRepair.Path);
+        Assert.EndsWith("FilmRepair_x1_int8.onnx", OnnxModel.FilmRepair.CpuPath);
+    }
+
+    [Fact]
+    public void Film_repair_keeps_the_picture_size_and_chroma_of_the_centre_frame()
+    {
+        var (w, h) = (40, 24);
+        var plane = w * h;
+        byte[] Frame(byte luma)
+        {
+            var f = new byte[plane * 3];
+            Array.Fill(f, luma, 0, plane);
+            for (var i = 0; i < plane; i++)
+                (f[plane + i], f[plane * 2 + i]) = ((byte)(100 + i % 7), (byte)(150 - i % 5));
+            return f;
+        }
+        var (a, b, c) = (Frame(100), Frame(110), Frame(120));
+        b[plane / 2 + w / 2] = 255; // a dust spot on the centre frame only
+        var repaired = new OnnxUpscaler(OnnxModel.FilmRepair).Restore(a, b, c, w, h, CancellationToken.None);
+        Assert.Equal(plane * 3, repaired.Length);
+        Assert.Equal(b.AsSpan(plane).ToArray(), repaired.AsSpan(plane).ToArray());
+        // The model dims a lone white pixel on a flat field (to 211 here, as onnxruntime in Python gives too) rather than removing it.
+        Assert.True(repaired[plane / 2 + w / 2] < 230, $"dust left at {repaired[plane / 2 + w / 2]}");
+        var mean = repaired.Take(plane).Average(v => (double)v);
+        Assert.InRange(mean, 95, 125);
+    }
+
+    [Fact]
+    public void Stacked_frames_put_the_source_below_the_upscaled_frame()
+    {
+        // Planar, 3 planes: 4x2 upscaled over a 2x1 source.
+        var up = Enumerable.Range(1, 4 * 2 * 3).Select(i => (byte)i).ToArray();
+        var src = new byte[] { 101, 102, 201, 202, 251, 252 };
+        var planar = OnnxUpscaleJob.Stack(up, src, 4, 2, 2, 1, 3, true);
+        Assert.Equal(4 * 3 * 3, planar.Length);
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = planar.AsSpan(c * 12, 12).ToArray();
+            Assert.Equal(up.AsSpan(c * 8, 8).ToArray(), plane[..8]);
+            Assert.Equal(new[] { src[c * 2], src[c * 2 + 1], (byte)0, (byte)0 }, plane[8..]);
+        }
+        // Packed RGB: one plane of 3 bytes a pixel.
+        var rgbUp = Enumerable.Range(1, 2 * 1 * 3).Select(i => (byte)i).ToArray();
+        var packed = OnnxUpscaleJob.Stack(rgbUp, [7, 8, 9], 2, 1, 1, 1, 1, false);
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0 }, packed[..12]);
+    }
+
+    [Theory]
+    [InlineData(1920, 1080, 16, 128, 128, 0, 0, 0)]      // tv-range black
+    [InlineData(1920, 1080, 235, 128, 128, 255, 255, 255)] // tv-range white
+    [InlineData(1920, 1080, 63, 102, 240, 255, 0, 0)]    // bt709 red
+    [InlineData(640, 480, 81, 90, 240, 255, 0, 0)]       // bt601 red
+    public void Yuv_converts_to_rgb_with_the_source_matrix(int w, int h, byte y, byte u, byte v, int r, int g, int b)
+    {
+        var color = ColorSpec.For(new MediaInfo { Path = "x", Width = w, Height = h });
+        var rgb = OnnxUpscaleJob.YuvToRgb([y, u, v], 1, 1, color);
+        Assert.InRange(rgb[0], r - 3, r + 3);
+        Assert.InRange(rgb[1], g - 3, g + 3);
+        Assert.InRange(rgb[2], b - 3, b + 3);
+    }
+
+    [Fact]
+    public void Repair_needs_video_and_turns_shader_methods_into_lanczos()
+    {
+        var info = new MediaInfo { Path = "x", Width = 640, Height = 480, HasVideo = true };
+        var repair = new ConversionSettings { Format = OutputFormats.Mp4H264, RepairFilm = true, Width = 1280, Height = 960 };
+        Assert.True(Converter.Effective(info, repair).RepairFilm);
+        Assert.False(Converter.Effective(info, repair with { Remux = true }).RepairFilm);
+        Assert.False(Converter.Effective(info, repair with { Format = OutputFormats.Gif }).RepairFilm);
+        Assert.False(Converter.Effective(info with { HasVideo = false }, repair).RepairFilm);
+        var shader = UpscaleMethods.All.First(m => m.Kind == UpscaleKind.GpuShader).Algorithm;
+        Assert.Equal(ScaleAlgorithm.Lanczos, Converter.Effective(info, repair with { Algorithm = shader }).Algorithm);
+        Assert.Equal(ScaleAlgorithm.CleanUpHd, Converter.Effective(info, repair with { Algorithm = ScaleAlgorithm.CleanUpHd }).Algorithm);
+        // Without resizing, repair alone still runs (through ONNX).
+        Assert.True(Converter.Effective(info, repair with { Width = null, Height = null }).RepairFilm);
+        Assert.Equal(UpscaleKind.Onnx, Converter.EngineFor(repair));
+        Assert.Equal(UpscaleKind.Cpu, Converter.EngineFor(repair with { RepairFilm = false }));
+    }
+
+    [Fact]
+    public void Encoder_splits_stacked_frames_and_scales_with_the_chosen_flags()
+    {
+        var info = new MediaInfo { Path = "in.mp4", Width = 320, Height = 240, HasVideo = true };
+        var color = ColorSpec.For(info);
+        var target = new ScaledSize(640, 480, null);
+        var s = new ConversionSettings { Format = OutputFormats.Mp4H264, Algorithm = ScaleAlgorithm.CleanUpHd, AiStrength = 0.6, RepairFilm = true };
+        var stacked = UpscaleEncoder.Arguments(TestMedia.Locator, info, s, color, target, "25", ["-i", "-"], false, "out.mp4",
+            new UpscaleEncoder.StackedFrames(640, 480, 320, 240));
+        var graph = stacked[stacked.IndexOf("-filter_complex") + 1];
+        Assert.Contains("split[top][bottom]", graph);
+        Assert.Contains("crop=640:480:0:0", graph);
+        Assert.Contains("crop=320:240:0:480", graph);
+        Assert.Contains("A*0.6+B*0.4", graph);
+        Assert.DoesNotContain("in.mp4", stacked); // the faithful layer comes in the piped frames, not the source again
+
+        var bicubic = UpscaleEncoder.Arguments(TestMedia.Locator, info, s with { Algorithm = ScaleAlgorithm.Bicubic }, color, target, "25", ["-i", "-"], false, "out.mp4");
+        Assert.Contains("flags=bicubic", bicubic[bicubic.IndexOf("-filter_complex") + 1]);
+        var enhanced = UpscaleEncoder.Arguments(TestMedia.Locator, info, s with { Algorithm = ScaleAlgorithm.Enhanced }, color, target, "25", ["-i", "-"], false, "out.mp4");
+        Assert.Contains("hqdn3d", enhanced[enhanced.IndexOf("-filter_complex") + 1]);
+    }
+
+    [Theory]
+    [InlineData(ScaleAlgorithm.Lanczos, null, 1.0)]  // repair alone, at the same size
+    [InlineData(ScaleAlgorithm.Spline, 128, 1.0)]    // repair, then ffmpeg enlarges
+    [InlineData(ScaleAlgorithm.CleanUpHd, 128, 0.5)] // repair, the model, blended with the repaired frame (stacked)
+    [InlineData(ScaleAlgorithm.CleanUp, 128, 1.0)]
+    public async Task Film_repair_converts_with_every_kind_of_scaling(ScaleAlgorithm algorithm, int? width, double strength)
+    {
+        var source = await TestMedia.PatternAsync(0.4, 64, 48);
+        var output = Path.Combine(TestMedia.NewOutputDirectory(), "repaired.mp4");
+        var settings = new ConversionSettings
+        {
+            Format = OutputFormats.Mp4H264, Algorithm = algorithm, RepairFilm = true, AiStrength = strength,
+            Width = width, Height = width * 3 / 4, Limits = new ResourceLimits(MaxThreads: 2, LowPriority: true),
+        };
+        await new Converter().ConvertAsync(source, output, settings);
+        var info = await MediaProbe.Default.ProbeAsync(output);
+        Assert.Equal((width ?? 64, width * 3 / 4 ?? 48), (info.Width, info.Height));
+        Assert.Equal(TestMedia.FrameCount(source), TestMedia.FrameCount(output));
+        Assert.True(TestMedia.Ssim(source, output) > 0.6, $"SSIM {TestMedia.Ssim(source, output):0.000}");
+
+        var dir = TestMedia.NewOutputDirectory();
+        var (before, after) = (Path.Combine(dir, "before.png"), Path.Combine(dir, "after.png"));
+        await new Converter().RenderPreviewAsync(source, settings, 0.2, before, after);
+        Assert.True(File.Exists(after));
+    }
 }

@@ -16,13 +16,18 @@ public enum OnnxChannels
 /// An upscaling model run with ONNX Runtime, shipped in the app's "models" folder. Its input's sides
 /// must be a multiple of <paramref name="Multiple"/> and at least <paramref name="MinimumSide"/>.
 /// <paramref name="CpuFile"/>, when set, is a version of the model run on the CPU instead (e.g. INT8,
-/// faster there; DirectML keeps the FP32 <paramref name="File"/>).
+/// faster there; DirectML keeps the FP32 <paramref name="File"/>). A model with <paramref name="Frames"/>
+/// above 1 takes that many consecutive frames (oldest first, one channel each) and restores the centre one.
 /// </summary>
-public sealed record OnnxModel(string Id, string File, OnnxChannels Channels, int Scale, int TileSize, int Multiple = 1, int MinimumSide = 1, string? CpuFile = null)
+public sealed record OnnxModel(string Id, string File, OnnxChannels Channels, int Scale, int TileSize, int Multiple = 1, int MinimumSide = 1, string? CpuFile = null, int Frames = 1)
 {
     public static readonly OnnxModel ArtCnn = new("artcnn-c4f32", "ArtCNN_C4F32.onnx", OnnxChannels.Luma, 2, 1024);
     /// <summary>SmallSR (this project's own, 57k parameters): INT8 on the CPU, FP32 on the graphics card.</summary>
     public static readonly OnnxModel SmallSr = new("smallsr-x2", "SmallSR_x2.onnx", OnnxChannels.Luma, 2, 1024, CpuFile: "SmallSR_x2_int8.onnx");
+    /// <summary>Clean-up HD (this project's own): trained on compressed HD frames, for 720p–1080p sources.</summary>
+    public static readonly OnnxModel CleanUpHd = new("cleanup-hd-x2", "CleanupHD_x2.onnx", OnnxChannels.Luma, 2, 1024, CpuFile: "CleanupHD_x2_int8.onnx");
+    /// <summary>Film repair (this project's own): same size, from 3 frames; removes scratches, dust and flicker.</summary>
+    public static readonly OnnxModel FilmRepair = new("filmrepair-x1", "FilmRepair_x1.onnx", OnnxChannels.Luma, 1, 1024, CpuFile: "FilmRepair_x1_int8.onnx", Frames: 3);
     public static readonly OnnxModel RealEsrganAnimation = new("realesr-animevideov3", "realesr-animevideov3.onnx", OnnxChannels.Rgb, 4, 256);
     public static readonly OnnxModel RealEsrganGeneral = new("realesr-general-x4v3", "realesr-general-x4v3.onnx", OnnxChannels.Rgb, 4, 256);
     /// <summary>x4plus is large (RRDBNet): smaller tiles keep graphics-card memory use modest.</summary>
@@ -149,13 +154,13 @@ public sealed class OnnxUpscaler
     /// Runs the model, recovering from failures, which are almost always the graphics card running
     /// out of memory: smaller tiles first, then the CPU.
     /// </summary>
-    private void RunWithFallback(byte[] planes, int channels, int width, int height, byte[] output, CancellationToken cancellationToken)
+    private void RunWithFallback(byte[] planes, int channels, int width, int height, byte[] output, CancellationToken cancellationToken, int outChannels = 0)
     {
         while (true)
         {
             try
             {
-                RunPlanes(planes, channels, width, height, output, cancellationToken);
+                RunPlanes(planes, channels, outChannels == 0 ? channels : outChannels, width, height, output, cancellationToken);
                 return;
             }
             catch (OnnxRuntimeException ex)
@@ -234,8 +239,28 @@ public sealed class OnnxUpscaler
         }
     }
 
-    /// <summary>Runs the model over planar 8-bit channels, tile by tile, writing the first <paramref name="channels"/> planes of the output.</summary>
-    private void RunPlanes(byte[] planes, int channels, int width, int height, byte[] output, CancellationToken cancellationToken)
+    /// <summary>
+    /// Film repair (a <see cref="OnnxModel.Frames"/> = 3 luma model): <paramref name="previous"/>,
+    /// <paramref name="frame"/> and <paramref name="next"/> are planar YUV 4:4:4 (8-bit, w×h each).
+    /// Returns <paramref name="frame"/> with its Y restored; its colour is kept as it is.
+    /// </summary>
+    public byte[] Restore(byte[] previous, byte[] frame, byte[] next, int width, int height, CancellationToken cancellationToken = default)
+    {
+        if (_model.Frames != 3 || _model.Scale != 1 || _model.Channels != OnnxChannels.Luma)
+            throw new InvalidOperationException($"{_model.Id} isn't a 3-frame repair model.");
+        var plane = width * height;
+        var stacked = new byte[plane * 3];
+        previous.AsSpan(0, plane).CopyTo(stacked);
+        frame.AsSpan(0, plane).CopyTo(stacked.AsSpan(plane));
+        next.AsSpan(0, plane).CopyTo(stacked.AsSpan(plane * 2));
+        var output = new byte[plane * 3];
+        RunWithFallback(stacked, 3, width, height, output, cancellationToken, outChannels: 1);
+        frame.AsSpan(plane, plane * 2).CopyTo(output.AsSpan(plane));
+        return output;
+    }
+
+    /// <summary>Runs the model over planar 8-bit channels, tile by tile, writing the first <paramref name="outChannels"/> planes of the output.</summary>
+    private void RunPlanes(byte[] planes, int channels, int outChannels, int width, int height, byte[] output, CancellationToken cancellationToken)
     {
         var s = _model.Scale;
         var tile = _tile;
@@ -272,7 +297,7 @@ public sealed class OnnxUpscaler
                 var keepH = Math.Min(tile, height - ty);
                 var rw = tw * s;
                 var rh = th * s;
-                for (var c = 0; c < channels; c++)
+                for (var c = 0; c < outChannels; c++)
                     for (var y = 0; y < keepH * s; y++)
                     {
                         var srcRow = (c * rh + (ty - y0) * s + y) * rw + (tx - x0) * s;

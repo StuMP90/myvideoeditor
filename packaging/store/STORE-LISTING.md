@@ -71,7 +71,9 @@ optional components. It must be live at that URL, so push PRIVACY.md to `main` b
 > **CONVERT, RESIZE AND UPSCALE**
 >
 > Convert a batch of files between formats; resize, trim, rotate and deinterlace them; change the
-> frame rate; or rewrap without re-encoding. Your originals are never changed.
+> frame rate; or rewrap without re-encoding. Repair old film: a small AI model takes out dust and
+> calms grain and flicker in digitised film, and can be combined with upscaling in one go. Your
+> originals are never changed.
 >
 > Upscale old or low-resolution video with built-in AI models: Real-ESRGAN, Real-CUGAN, ArtCNN and SmallSR.
 > They run on your graphics card (DirectX 12) or on the processor. "Test speed on this PC"
@@ -115,9 +117,10 @@ For the first submission:
 9. Batch convert, resize, trim and rotate without touching your originals
 10. Upscale with local AI (Real-ESRGAN, Real-CUGAN, ArtCNN, SmallSR) on your graphics card or CPU
 11. Compare every upscaling method side by side before converting
-12. Record a window, screen or region with your microphone
-13. Annotate recordings and screenshots with arrows, callouts, steps, zoom and blur
-14. No account, no watermark, no cloud: nothing leaves your PC
+12. Repair old film: remove dust and calm grain and flicker with local AI
+13. Record a window, screen or region with your microphone
+14. Annotate recordings and screenshots with arrows, callouts, steps, zoom and blur
+15. No account, no watermark, no cloud: nothing leaves your PC
 
 ## Search terms [up to 7, 30 characters each, 21 words in total]
 

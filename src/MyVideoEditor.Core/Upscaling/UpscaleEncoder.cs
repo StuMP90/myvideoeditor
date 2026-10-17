@@ -11,19 +11,27 @@ namespace MyVideoEditor.Core.Upscaling;
 /// padded or cropped, with the source's sound, and for AI methods and Clean-up optionally mixed
 /// with a faithful Lanczos enlargement of the same frame ("Strength"), which keeps real texture that
 /// the model would otherwise paint over. Frames are paired by number, so they can't drift apart.
+/// With film repair, the faithful layer must be the repaired frame (the source would bring the
+/// scratches back), so it travels in the same piped frame, below the upscaled one (<see cref="StackedFrames"/>).
 /// </summary>
 internal static class UpscaleEncoder
 {
+    /// <summary>
+    /// Piped frames that are <paramref name="Width"/>×(<paramref name="Height"/> + <paramref name="SourceHeight"/>):
+    /// the upscaled frame on top, the repaired source-size frame below it on the left.
+    /// </summary>
+    public readonly record struct StackedFrames(int Width, int Height, int SourceWidth, int SourceHeight);
+
     /// <summary>Arguments for the encoder; <paramref name="frameInput"/> describes the piped frames (input 0).</summary>
     public static List<string> Arguments(FfmpegLocator locator, MediaInfo info, ConversionSettings s, ColorSpec color, ScaledSize target, string rate,
-        IReadOnlyList<string> frameInput, bool framesAreRgb, string output)
+        IReadOnlyList<string> frameInput, bool framesAreRgb, string output, StackedFrames? stacked = null)
     {
         var withAudio = info.HasAudio && !s.RemoveAudio && s.Format.HasAudio;
         var strength = Math.Clamp(s.AiStrength, 0, 1);
         var blend = UpscaleMethods.Get(s.Algorithm).HasStrength && strength < 0.995;
         var args = new List<string> { "-hide_banner", "-loglevel", "error" };
         args.AddRange(frameInput);
-        if (withAudio || blend)
+        if (withAudio || (blend && stacked == null))
         {
             // The source again: its sound, and (when blending) the frames for the faithful layer.
             if (s.TrimStart is > 0)
@@ -32,12 +40,30 @@ internal static class UpscaleEncoder
         }
 
         var index = $"setpts=N/({rate})/TB";
-        var scale = $"scale={target.Width}:{target.Height}:flags=lanczos+accurate_rnd+full_chroma_int";
-        var toYuv = framesAreRgb ? $"{scale}:out_color_matrix={color.SwsMatrix}:out_range={color.Range}" : scale;
-        var graph = new List<string> { $"[0:v]{toYuv},format=yuv444p,{index}[up]" };
-        var last = "up";
-        if (blend)
+        // Only film repair alone pipes frames for a standard method (the rest are ONNX: Lanczos).
+        var flags = s.Algorithm switch
         {
+            ScaleAlgorithm.Bicubic => "bicubic",
+            ScaleAlgorithm.Spline => "spline",
+            _ => "lanczos",
+        };
+        var scale = $"scale={target.Width}:{target.Height}:flags={flags}+accurate_rnd+full_chroma_int";
+        var toYuv = framesAreRgb ? $"{scale}:out_color_matrix={color.SwsMatrix}:out_range={color.Range}" : scale;
+        if (s.Algorithm == ScaleAlgorithm.Enhanced && target.Width * (long)target.Height > info.Width * (long)info.Height)
+            toYuv += ",hqdn3d=1.5:1.5:3:3,unsharp=5:5:0.8:3:3:0.3";
+        var graph = new List<string>();
+        var last = "up";
+        if (blend && stacked is { } st)
+        {
+            graph.Add($"[0:v]split[top][bottom]");
+            graph.Add($"[top]crop={st.Width}:{st.Height}:0:0,{toYuv},format=yuv444p,{index}[up]");
+            graph.Add($"[bottom]crop={st.SourceWidth}:{st.SourceHeight}:0:{st.Height},{toYuv},format=yuv444p,{index}[base]");
+            graph.Add($"[up][base]blend=all_expr='A*{F(strength)}+B*{F(1 - strength)}'[mixed]");
+            last = "mixed";
+        }
+        else if (blend)
+        {
+            graph.Add($"[0:v]{toYuv},format=yuv444p,{index}[up]");
             var source = new List<string>();
             if (s.Deinterlace)
                 source.Add("yadif");
@@ -47,6 +73,10 @@ internal static class UpscaleEncoder
             graph.Add($"[1:v]{string.Join(',', source)}[base]");
             graph.Add($"[up][base]blend=all_expr='A*{F(strength)}+B*{F(1 - strength)}'[mixed]");
             last = "mixed";
+        }
+        else
+        {
+            graph.Add($"[0:v]{toYuv},format=yuv444p,{index}[up]");
         }
         var tail = new List<string>();
         if (target.PostFilter != null)

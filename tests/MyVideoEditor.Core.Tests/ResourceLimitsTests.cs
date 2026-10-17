@@ -168,6 +168,78 @@ public class ResourceLimitsTests
         Assert.Equal((128, 96), ((await MediaProbe.Default.ProbeAsync(output)).Width, (await MediaProbe.Default.ProbeAsync(output)).Height));
         Assert.Equal(TestMedia.FrameCount(source), TestMedia.FrameCount(output));
     }
+    [Fact]
+    public void Temperature_guard_pauses_on_the_average_or_a_held_peak_and_resumes_lower()
+    {
+        // The average: one reading over the limit isn't enough; staying over it is.
+        var state = new ThermalState();
+        Assert.False(state.Update(70, 80));
+        Assert.False(state.Update(85, 80));
+        var readings = 0;
+        while (!state.Update(85, 80))
+            Assert.True(++readings < 60, "never paused at 85°C");
+        Assert.True(state.Average >= 80);
+        // Continues only 5 degrees under the limit.
+        while (state.Average > 75.5)
+            Assert.True(state.Update(70, 80));
+        while (state.Update(70, 80))
+            Assert.True(state.Average > 74.9);
+
+        // A peak 8 over the limit pauses at once, but only when two readings in a row reach it.
+        var peak = new ThermalState();
+        Assert.False(peak.Update(60, 80));
+        Assert.False(peak.Update(95, 80));
+        Assert.False(peak.Update(60, 80));
+        Assert.False(peak.Update(90, 80));
+        Assert.True(peak.Update(88, 80));
+    }
+
+    [Fact]
+    public void Temperature_limit_does_nothing_without_a_limit_or_a_sensor()
+    {
+        Assert.Null(new ResourceLimits().MaxTemperature);
+        using (new ResourceLimits().WatchTemperature())
+            ThermalGuard.WaitWhileHot(CancellationToken.None); // returns at once: nothing is watching
+        if (!ThermalGuard.IsAvailable)
+            return; // Windows, macOS, or Linux without the Intel package sensor
+        // With a limit far above any real temperature, nothing waits.
+        using (new ResourceLimits(MaxTemperature: 150).WatchTemperature())
+            ThermalGuard.WaitWhileHot(new CancellationTokenSource(TimeSpan.FromSeconds(5)).Token);
+    }
+
+    [Fact]
+    public async Task Temperature_guard_stops_child_processes_and_continues_them_afterwards()
+    {
+        if (!ThermalGuard.IsAvailable)
+            return;
+        static char State(Process p) => File.ReadAllText($"/proc/{p.Id}/stat").Split(") ")[1][0];
+        static async Task<bool> Becomes(Process p, char state)
+        {
+            for (var i = 0; i < 40 && State(p) != state; i++)
+                await Task.Delay(50);
+            return State(p) == state;
+        }
+        using var sleeper = Process.Start(new ProcessStartInfo("sleep", "30") { UseShellExecute = false })!;
+        try
+        {
+            using (new ResourceLimits(MaxTemperature: 1).WatchTemperature()) // always "too hot"
+            {
+                new ResourceLimits(MaxTemperature: 1).Apply(sleeper);
+                Assert.True(await Becomes(sleeper, 'T'), $"not stopped: {State(sleeper)}");
+                Assert.Throws<OperationCanceledException>(() => ThermalGuard.WaitWhileHot(new CancellationTokenSource(300).Token));
+                ThermalGuard.Release(sleeper);
+                Assert.True(await Becomes(sleeper, 'S'), $"not continued on release: {State(sleeper)}");
+                ThermalGuard.Watch(sleeper);
+                Assert.True(await Becomes(sleeper, 'T'));
+            }
+            Assert.True(await Becomes(sleeper, 'S'), $"not continued when the job ended: {State(sleeper)}");
+            ThermalGuard.WaitWhileHot(CancellationToken.None);
+        }
+        finally
+        {
+            sleeper.Kill();
+        }
+    }
 }
 
 [CollectionDefinition(nameof(RunAlone), DisableParallelization = true)]

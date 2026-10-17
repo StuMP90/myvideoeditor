@@ -787,6 +787,25 @@ public partial class UiTests
         var cleanUp = new Core.Conversion.ConversionSettings { Format = Core.Export.OutputFormats.Mp4H264, Algorithm = Core.Conversion.ScaleAlgorithm.CleanUp, Width = 1280, Height = 720, AiStrength = 0.7 };
         Assert.Equal("-1280x720-SmallSR-70%", ConvertViewModel.SuffixFor(cleanUp, true));
         Assert.Equal("-1280x720-SmallSR", ConvertViewModel.SuffixFor(cleanUp with { AiStrength = 1 }, true));
+        var hd = cleanUp with { Algorithm = Core.Conversion.ScaleAlgorithm.CleanUpHd, AiStrength = 0.5, RepairFilm = true };
+        Assert.Equal("-1280x720-CleanupHD-50%-repaired", ConvertViewModel.SuffixFor(hd, true));
+        Assert.Equal("-repaired", ConvertViewModel.SuffixFor(hd, false));
+        Assert.Equal("-converted", ConvertViewModel.SuffixFor(hd with { RepairFilm = false }, false));
+        convert.RepairFilm = true;
+        Assert.True(convert.BuildSettings().Settings!.RepairFilm);
+        convert.RepairFilm = false;
+        Assert.False(convert.BuildSettings().Settings!.RepairFilm);
+
+        // The temperature limit: offered only where it can work, off by default.
+        Pump();
+        var pause = window.GetVisualDescendants().OfType<CheckBox>().FirstOrDefault(c => c.Content as string == "Pause above");
+        Assert.Equal(ConvertViewModel.OffersTempLimit, pause?.Parent is Control { IsVisible: true });
+        Assert.False(convert.TempLimit);
+        Assert.Null(convert.Limits.MaxTemperature);
+        convert.TempLimit = true;
+        convert.MaxTemp = 70;
+        Assert.Equal(ConvertViewModel.OffersTempLimit ? 70 : null, convert.Limits.MaxTemperature);
+        convert.TempLimit = false;
         window.CloseWithoutPrompt();
     }
 

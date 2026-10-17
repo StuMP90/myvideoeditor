@@ -41,6 +41,8 @@ public enum ScaleAlgorithm
     AiPhoto,
     /// <summary>SmallSR (ONNX, INT8 on the CPU, FP32 on DirectML): fast clean-up of compressed or low-resolution footage.</summary>
     CleanUp,
+    /// <summary>Clean-up HD (ONNX, INT8 on the CPU, FP32 on DirectML): clean-up of compressed 720p–1080p footage.</summary>
+    CleanUpHd,
 }
 
 public sealed record ConversionSettings
@@ -67,6 +69,11 @@ public sealed record ConversionSettings
     /// enlargement of the same frame, which keeps real texture the AI would paint over.
     /// </summary>
     public double AiStrength { get; init; } = 1.0;
+    /// <summary>
+    /// Film repair before any resizing: removes scratches, dust and flicker from old film, each frame
+    /// restored from itself and its neighbours (an ONNX model, so it runs in <see cref="OnnxUpscaleJob"/>).
+    /// </summary>
+    public bool RepairFilm { get; init; }
     /// <summary>CPU threads, priority and where AI models run.</summary>
     public ResourceLimits Limits { get; init; } = ResourceLimits.Unlimited;
 }
@@ -95,9 +102,10 @@ public sealed class Converter
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         var partial = Path.Combine(Path.GetDirectoryName(full)!, Path.GetFileNameWithoutExtension(full) + ".partial" + Path.GetExtension(full));
         var length = OutputLength(info, settings);
-        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}, {settings.Limits.Threads} threads{(settings.Limits.LowPriority ? ", low priority" : "")}).");
+        Log.Info("convert", $"Converting {info.Path} to {full} ({settings.Format.Label}, {settings.Algorithm}{(settings.RepairFilm ? ", film repair" : "")}, {settings.Limits.Threads} threads{(settings.Limits.LowPriority ? ", low priority" : "")}).");
         using var priority = settings.Limits.LowerAppOnWindows();
         using var cpus = settings.Limits.PinApp();
+        using var heat = settings.Limits.WatchTemperature();
         try
         {
             var kind = EngineOverride ?? EngineFor(settings);
@@ -138,6 +146,8 @@ public sealed class Converter
     /// </summary>
     public static UpscaleKind EngineFor(ConversionSettings s)
     {
+        if (s.RepairFilm)
+            return UpscaleKind.Onnx; // repair, then the method's ONNX model on the frames (or the encoder's scaler)
         var method = UpscaleMethods.Get(s.Algorithm);
         return method.VulkanAlternative != null && UseVulkan(s.Algorithm, s.Limits.Device) ? UpscaleKind.AiFrames : method.Kind;
     }
@@ -160,11 +170,16 @@ public sealed class Converter
 
     /// <summary>
     /// GPU and AI methods only make sense when the picture gets bigger and is re-encoded; otherwise
-    /// (downscaling, same size, remux, audio only) Lanczos is used.
+    /// (downscaling, same size, remux, audio only) Lanczos is used. Film repair needs a re-encoded picture;
+    /// it runs with ONNX methods and ffmpeg's scalers, so a GPU shader or Vulkan-only AI method becomes Lanczos.
     /// </summary>
     internal static ConversionSettings Effective(MediaInfo info, ConversionSettings s)
     {
+        if (s.RepairFilm && (s.Remux || !s.Format.HasVideo || s.Format.IsGif || !info.HasVideo))
+            s = s with { RepairFilm = false };
         var method = UpscaleMethods.Get(s.Algorithm);
+        if (s.RepairFilm && method.Kind is UpscaleKind.GpuShader or UpscaleKind.AiFrames)
+            return s with { Algorithm = ScaleAlgorithm.Lanczos };
         if (method.Kind == UpscaleKind.Cpu)
             return s;
         var (srcW, srcH) = s.Rotate % 180 == 0 ? (info.Width, info.Height) : (info.Height, info.Width);
@@ -308,6 +323,7 @@ public sealed class Converter
         layout.Add(StillToRgb(color));
         using var priority = settings.Limits.LowerAppOnWindows();
         using var cpus = settings.Limits.PinApp();
+        using var heat = settings.Limits.WatchTemperature();
         if (beforePng != null)
         {
             var before = new List<string> { "-ss", F(at), "-i", info.Path, "-frames:v", "1", "-vf", string.Join(',', layout), "-update", "1", "-y", beforePng };

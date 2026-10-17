@@ -169,6 +169,7 @@ public sealed class FfmpegRunner
         {
             if (process.HasExited)
                 return;
+            Conversion.ThermalGuard.Release(process); // a paused ffmpeg can't read the q
             if (graceful)
             {
                 await process.StandardInput.WriteAsync('q').ConfigureAwait(false);

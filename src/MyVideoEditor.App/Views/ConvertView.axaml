@@ -178,6 +178,8 @@
                 <ComboBox Grid.Column="1" ItemsSource="{Binding Rotations}" SelectedItem="{Binding Rotate}" HorizontalAlignment="Stretch" />
               </Grid>
               <CheckBox IsChecked="{Binding Deinterlace}" Content="Deinterlace (old TV / camcorder footage)" />
+              <CheckBox IsChecked="{Binding RepairFilm}" Content="Repair old film (scratches, dust, flicker)"
+                        ToolTip.Tip="A small AI model restores each frame from itself and the frames either side, before any upscaling. For scanned or digitised film; on other video it does little. Slower: about as slow as Clean-up (fast)." />
             </StackPanel>
 
             <TextBlock Text="TRIM" Classes="section" />
@@ -200,6 +202,13 @@
             </Grid>
             <CheckBox IsChecked="{Binding LowPriority}" Content="Run at low priority"
                       ToolTip.Tip="Other programs get the processor first, so the computer stays responsive; conversions still use whatever is idle." />
+            <Grid ColumnDefinitions="Auto,*,Auto" IsVisible="{Binding OffersTempLimit}"
+                  ToolTip.Tip="Pauses the conversion while the processor is hotter than this on average, and continues once it's 5°C cooler. For small or fanless computers that overheat on long jobs.">
+              <CheckBox IsChecked="{Binding TempLimit}" Content="Pause above" />
+              <NumericUpDown Grid.Column="1" Minimum="50" Maximum="100" Value="{Binding MaxTemp}" Increment="1" FormatString="0"
+                             IsEnabled="{Binding TempLimit}" Margin="6,0" />
+              <TextBlock Grid.Column="2" Text="°C" VerticalAlignment="Center" />
+            </Grid>
             <Grid ColumnDefinitions="110,*">
               <TextBlock Classes="name" Text="AI runs on" />
               <ComboBox Grid.Column="1" ItemsSource="{Binding AiDeviceOptions}" SelectedIndex="{Binding AiDeviceIndex}" HorizontalAlignment="Stretch" />

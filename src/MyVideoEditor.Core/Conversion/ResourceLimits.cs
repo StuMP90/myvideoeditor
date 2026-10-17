@@ -17,9 +17,10 @@ public enum AiDevice
 
 /// <summary>
 /// How much of the computer a conversion may use: a cap on CPU threads (for heat and noise on long
-/// jobs), low priority (so the computer stays responsive), and where AI models run.
+/// jobs), low priority (so the computer stays responsive), where AI models run, and a CPU temperature
+/// to pause at (<see cref="ThermalGuard"/>; Linux only).
 /// </summary>
-public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = false, AiDevice Device = AiDevice.Auto)
+public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = false, AiDevice Device = AiDevice.Auto, int? MaxTemperature = null)
 {
     public static readonly ResourceLimits Unlimited = new();
 
@@ -47,9 +48,14 @@ public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = f
         return result;
     }
 
-    /// <summary>Lowers a child process's priority (ffmpeg, the AI programs) if asked to.</summary>
+    /// <summary>
+    /// Lowers a child process's priority (ffmpeg, the AI programs) if asked to, and lets the temperature
+    /// guard pause it (<see cref="WatchTemperature"/>).
+    /// </summary>
     public void Apply(Process process)
     {
+        if (MaxTemperature != null)
+            ThermalGuard.Watch(process);
         if (!LowPriority)
             return;
         try
@@ -100,6 +106,14 @@ public sealed record ResourceLimits(int? MaxThreads = null, bool LowPriority = f
     /// </summary>
     public IDisposable PinApp() =>
         OperatingSystem.IsLinux() || OperatingSystem.IsWindows() ? CpuPin.Enter(IsCapped ? Threads : CpuPin.All) : Nothing.Instance;
+
+    /// <summary>
+    /// Pauses this job's child processes (and its ONNX model between frames) while the CPU is over
+    /// <see cref="MaxTemperature"/>, until disposed. Does nothing without a limit, or where the
+    /// temperature can't be read (<see cref="ThermalGuard.IsAvailable"/>: Linux with an Intel sensor).
+    /// </summary>
+    public IDisposable WatchTemperature() =>
+        MaxTemperature is { } max && ThermalGuard.IsAvailable ? ThermalGuard.Enter(max) : Nothing.Instance;
 
     [DllImport("libc", SetLastError = true)]
     private static extern int setpriority(int which, int who, int prio);

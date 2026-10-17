@@ -93,6 +93,12 @@ public static class UpscaleMethods
             "SmallSR, a tiny neural network trained to remove compression blocks and blur while doubling the size; a standard resize does the rest. " +
             "Faster than Sharper detail on the CPU; best for low-resolution or heavily compressed footage. Lower the strength for a softer, more natural mix.",
             UpscaleKind.Onnx, null, null, 4, OnnxModel.SmallSr, OnnxScales: [OnnxModel.SmallSr], Mixable: true),
+        // Never recommended over the above (Quality 3): it only beats them on compressed HD sources.
+        new(ScaleAlgorithm.CleanUpHd, "Clean-up (HD, compressed sources)",
+            "A tiny neural network like Clean-up (fast), trained on compressed HD frames: removes blocks, banding and smearing from 720p–1080p " +
+            "footage (streamed, phone or heavily compressed video) while doubling the size. For clean or low-resolution sources, use Clean-up (fast) " +
+            "or Sharper detail instead. Lower the strength for a softer mix.",
+            UpscaleKind.Onnx, null, null, 3, OnnxModel.CleanUpHd, OnnxScales: [OnnxModel.CleanUpHd], Mixable: true),
         new(ScaleAlgorithm.AiAnimation, "AI: animation and screen (Real-ESRGAN)",
             "Real-ESRGAN's video model: clean, sharp lines and flat colours. Best for animation, cartoons and screen recordings. " +
             "Runs on the CPU (about a second per frame), or a graphics card on Windows.",

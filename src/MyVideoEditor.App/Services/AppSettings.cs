@@ -28,6 +28,10 @@ public sealed class AppSettings
     public int ConvertCpuThreads { get; set; } = 4;
     public bool ConvertLowPriority { get; set; } = true;
     public string ConvertAiDevice { get; set; } = "Auto";
+    /// <summary>Pause conversions while the CPU is over <see cref="ConvertMaxTemp"/> (Linux, where it can be read).</summary>
+    public bool ConvertTempLimit { get; set; }
+    public int ConvertMaxTemp { get; set; } = 80;
+    public bool ConvertRepairFilm { get; set; }
     public string? CaptureFolder { get; set; }
     public double CaptureFrameRate { get; set; } = 30;
     public bool CaptureCursor { get; set; } = true;

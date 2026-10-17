@@ -204,6 +204,43 @@ public sealed partial class ConvertViewModel : ObservableObject
         }
     }
 
+    /// <summary>Whether the CPU temperature can be read here (Linux with an Intel sensor): otherwise the option is hidden.</summary>
+    public static bool OffersTempLimit => ThermalGuard.IsAvailable;
+
+    public bool TempLimit
+    {
+        get => _settings.ConvertTempLimit;
+        set
+        {
+            _settings.ConvertTempLimit = value;
+            _settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public decimal MaxTemp
+    {
+        get => Math.Clamp(_settings.ConvertMaxTemp, 50, 100);
+        set
+        {
+            _settings.ConvertMaxTemp = (int)Math.Clamp(value, 50, 100);
+            _settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>Film repair (scratches, dust, flicker) before any upscaling.</summary>
+    public bool RepairFilm
+    {
+        get => _settings.ConvertRepairFilm;
+        set
+        {
+            _settings.ConvertRepairFilm = value;
+            _settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
     public IReadOnlyList<string> AiDeviceOptions { get; } = ["Automatic", "CPU", "Graphics card"];
 
     private static readonly string[] AiDeviceKeys = ["Auto", "Cpu", "Gpu"];
@@ -273,7 +310,8 @@ public sealed partial class ConvertViewModel : ObservableObject
             _ => null,
         },
         _settings.ConvertLowPriority,
-        Enum.TryParse<AiDevice>(_settings.ConvertAiDevice, out var device) ? device : AiDevice.Auto);
+        Enum.TryParse<AiDevice>(_settings.ConvertAiDevice, out var device) ? device : AiDevice.Auto,
+        _settings.ConvertTempLimit && OffersTempLimit ? Math.Clamp(_settings.ConvertMaxTemp, 50, 100) : null);
 
     partial void OnSelectedScalingChanged(UpscaleOptionViewModel value)
     {
@@ -788,6 +826,7 @@ public sealed partial class ConvertViewModel : ObservableObject
             RemoveAudio = RemoveAudio,
             Deinterlace = Deinterlace,
             AiStrength = _settings.ConvertAiStrength,
+            RepairFilm = _settings.ConvertRepairFilm,
             Limits = Limits,
         }, null);
     }
@@ -970,8 +1009,9 @@ public sealed partial class ConvertViewModel : ObservableObject
     {
         if (s.Remux)
             return "-remux";
+        var repaired = s.RepairFilm ? "-repaired" : "";
         if (!resized)
-            return "-converted";
+            return repaired.Length > 0 ? repaired : "-converted";
         var size = s.Width != null && s.Height != null ? $"-{s.Width}x{s.Height}" : s.Height is { } h ? $"-{h}p" : $"-{s.Width}w";
         var method = s.Algorithm switch
         {
@@ -982,10 +1022,11 @@ public sealed partial class ConvertViewModel : ObservableObject
             ScaleAlgorithm.AiAnime => "AI-CUGAN",
             ScaleAlgorithm.AiPhoto => "AI-photo",
             ScaleAlgorithm.CleanUp => "SmallSR",
+            ScaleAlgorithm.CleanUpHd => "CleanupHD",
             var other => other.ToString(),
         };
         var strength = UpscaleMethods.Get(s.Algorithm).HasStrength && s.AiStrength < 0.995 ? $"-{s.AiStrength * 100:0}%" : "";
-        return $"{size}-{method}{strength}";
+        return $"{size}-{method}{strength}{repaired}";
     }
 
     private static string UniquePath(string path)

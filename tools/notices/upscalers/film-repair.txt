@@ -1,0 +1,15 @@
+Film repair (FilmRepair_x1.onnx, FilmRepair_x1_int8.onnx, bundled in the models folder): trained for MyVideoEditor, MIT licence (see MyVideoEditor above)
+
+The model was trained only on public-domain works, our own recordings and synthetic screenshots, plus
+the following works under Creative Commons Attribution licences:
+
+  Chimera (c) Netflix, Inc. - CC BY 4.0 - https://opencontent.netflix.com
+  Meridian (c) Netflix, Inc. - CC BY 4.0 - https://opencontent.netflix.com
+  Sol Levante (c) Netflix, Inc. - CC BY 4.0 - https://opencontent.netflix.com
+  Tears of Steel (c) Blender Foundation | mango.blender.org - CC BY 3.0 - https://mango.blender.org
+
+Licence texts: https://creativecommons.org/licenses/by/4.0/legalcode
+               https://creativecommons.org/licenses/by/3.0/legalcode
+
+Frames from these works were reduced, compressed and used as training examples; none are included
+in the app, and the model cannot reproduce them. The licensors do not endorse MyVideoEditor.

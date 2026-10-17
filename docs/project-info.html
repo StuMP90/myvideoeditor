@@ -29,6 +29,7 @@
 <ul>
   <li>Batch conversion: change format, resize, trim, rotate, deinterlace or change the frame rate</li>
   <li>Rewrap into a new container without re-encoding</li>
+  <li>Repair old film: take out dust and calm grain and flicker, before any upscaling</li>
   <li>Upscale with built-in AI models (Real-ESRGAN, Real-CUGAN, ArtCNN and SmallSR), on the graphics card or the processor</li>
   <li>Compare every method on a frame of your own video before a long job</li>
   <li>Your originals are never changed</li>
@@ -55,6 +56,7 @@
     <tr><td>Lanczos, bicubic, spline</td><td>Anything</td><td>~30 ms per frame</td></tr>
     <tr><td>Sharper detail (ArtCNN)</td><td>Anything</td><td>~0.1–0.2 s per frame</td></tr>
     <tr><td>Clean-up (SmallSR)</td><td>Compressed or soft video</td><td>~0.03–0.05 s per frame</td></tr>
+    <tr><td>Clean-up (HD, compressed sources)</td><td>Streamed or phone video at 720p–1080p</td><td>~0.09 s per frame</td></tr>
     <tr><td>Cleaner lines (Anime4K)</td><td>Animation, screen recordings</td><td>~0.1 s per frame</td></tr>
     <tr><td>AI: animation and screen (Real-ESRGAN)</td><td>Animation, screen recordings</td><td>~1 s per frame</td></tr>
     <tr><td>AI: realistic detail (Real-ESRGAN)</td><td>Camera footage</td><td>~2 s per frame</td></tr>
@@ -63,7 +65,7 @@
   </tbody>
 </table>
 
-<p>On Windows the AI models can use any DirectX 12 graphics card. A thread limit and a low-priority setting keep laptops cool and responsive during long jobs.</p>
+<p>On Windows the AI models can use any DirectX 12 graphics card. A thread limit and a low-priority setting keep laptops cool and responsive during long jobs; on Linux with an Intel processor, conversions can also pause while the processor is too hot.</p>
 
 <h2>Screenshots</h2>
 

@@ -80,7 +80,7 @@ Both include FFmpeg, so there's nothing else to install.
 
 A batch queue for files that don't need a timeline: change format; resize with **fit** (black
 bars), **fill** (crop) or **stretch**; upscale (below); change the frame rate; trim; rotate;
-deinterlace; remove the sound; or copy streams into a new container without re-encoding (fast and
+deinterlace; repair old film (scratches, dust and flicker, before any upscaling); remove the sound; or copy streams into a new container without re-encoding (fast and
 lossless). Originals are never changed. **Preview frame** converts one frame of the selected file
 with exactly the current settings and shows it against the original, with a draggable divider or
 side by side, zoomable to 100% and 200%, so methods can be compared before committing to a long
@@ -102,6 +102,7 @@ the moment worth checking.
 | **Sharper detail** (ArtCNN C4F32, ONNX) | CPU anywhere; graphics card on Windows (DirectML) | anything | ~0.1–0.2 s per frame |
 | **Cleaner lines** (Anime4K shaders via libplacebo) | any Vulkan GPU | animation, screen recordings | ~0.1 s per frame |
 | **Clean-up (fast)** (SmallSR, ONNX; INT8 on the CPU) | CPU anywhere; graphics card on Windows | compressed or soft video | ~0.03–0.05 s per frame |
+| **Clean-up (HD, compressed sources)** (ONNX; INT8 on the CPU) | CPU anywhere; graphics card on Windows | streamed or phone video at 720p–1080p | ~0.09 s per frame (1080p→4K: ~0.9 s) |
 | **AI: animation and screen** (Real-ESRGAN animevideov3, ONNX) | CPU; graphics card on Windows | animation, screen recordings | ~1 s per frame |
 | **AI: realistic detail** (Real-ESRGAN general-x4v3, ONNX) | CPU; graphics card on Windows | camera footage | ~2 s per frame |
 | **AI: anime, strongest** (Real-CUGAN, ONNX) | CPU; graphics card on Windows | anime | ~1.5 s per frame |
@@ -116,11 +117,22 @@ the moment worth checking.
   does the rest (two passes looked too smooth). On compressed 540p frames it scored above ArtCNN
   (PSNR 29.6 against 29.2 dB); on clean frames ArtCNN keeps more detail (35.2 against 33.3 dB). The
   CPU uses an INT8 copy (73 KB), 1.4–2× faster than the full-precision model (29 against 58 ms for a 360p frame on 10 threads).
+- **Clean-up (HD, compressed sources)** is SmallSR's sibling, the same kind of tiny luma network trained on
+  compressed HD frames (public-domain, CC BY and own footage), for blocks, banding and smearing in
+  720p–1080p video. It's never recommended by the speed test: on clean or low-resolution sources
+  Clean-up (fast) or ArtCNN keep more detail, and on a heavily compressed 1080p camera clip it
+  removed the blocking but looked softer than Clean-up (fast). The CPU uses an INT8 copy (81 KB).
+- **Repair old film** (Convert tab, under Picture) runs a small network (FilmRepair, 230 KB; INT8
+  copy 75 KB on the CPU) that restores each frame from itself and the frames either side, taking
+  out dust specks and calming grain and flicker in digitised film, before any upscaling; it can be
+  combined with any upscaling method in one conversion. It was trained for MyVideoEditor on
+  public-domain, CC BY and own footage with synthetic damage. About 0.03 s per 360p frame and 0.3 s
+  per 1440x1080 frame on the CPU. On video that isn't film it changes little.
 - **Strength** (Clean-up and the AI methods): the model's picture is mixed with a faithful Lanczos enlargement of the
   same frame. GAN-trained models such as Real-ESRGAN invent texture and can paint over real detail;
   30–50% keeps most of the real picture while sharpening edges (on the camera clip, 30% raised
   fidelity from 37.9 to 44.8 dB).
-- **ONNX models** (ArtCNN, SmallSR, the two compact Real-ESRGAN models and Real-CUGAN's three, 15.9 MB together) ship with the app
+- **ONNX models** (ArtCNN, SmallSR, Clean-up HD, FilmRepair, the two compact Real-ESRGAN models and Real-CUGAN's three, 16.5 MB together) ship with the app
   in a `models` folder and run in-process through ONNX Runtime: on the CPU anywhere, and on Windows
   on any DirectX 12 graphics card through DirectML, falling back to the CPU if that isn't possible.
   `MYVIDEOEDITOR_ONNX_DEVICE=cpu` forces the CPU. On integrated graphics, ONNX Runtime's CPU kernels
@@ -153,7 +165,7 @@ the moment worth checking.
   card (Convert tab → CPU and heat, with the method selected).
 - Every downloadable component is pinned to an exact file and SHA-256 checksum in
   `src/MyVideoEditor.Core/Upscaling/components.json`. Downloads go to the data folder under
-  `tools/`. Licences: ArtCNN MIT, SmallSR MIT (this project), Anime4K MIT, Real-ESRGAN MIT (program) and BSD-3-Clause (models),
+  `tools/`. Licences: ArtCNN MIT, SmallSR, Clean-up HD and FilmRepair MIT (this project), Anime4K MIT, Real-ESRGAN MIT (program) and BSD-3-Clause (models),
   Real-CUGAN MIT, ncnn BSD-3-Clause, ONNX Runtime MIT, DirectML Microsoft redistributable licence;
   the texts of everything shipped go into `THIRD-PARTY-NOTICES.txt`.
 - Vulkan GPUs (for Anime4K and the ncnn programs) are chosen dedicated first, then integrated;
@@ -170,6 +182,10 @@ the moment worth checking.
   app's priority class is lowered while converting); and **AI runs on** Automatic / CPU / graphics
   card. On Linux, "graphics card" runs the Real-ESRGAN and Real-CUGAN models through their Vulkan
   programs (when downloaded) instead of ONNX on the CPU; Automatic uses whichever the speed test found faster.
+  **Pause above** (off by default; Linux with an Intel processor, which reports the package
+  temperature) pauses a conversion while the CPU package is hotter than the limit, averaged over
+  about 3 seconds so short boosts don't count, and continues once it's 5°C cooler: ffmpeg and the AI
+  programs are paused, and the in-app ONNX models wait between frames. Elsewhere the option is hidden.
 - **Convert again** (per file) and **Convert all again** redo conversions with the current
   settings; earlier results are kept, as outputs are named after their settings
   (`clip-1280x720-ArtCNN.mp4`, `clip-1080p-AI-general-40%.mp4`, numbered if repeated), and each file
